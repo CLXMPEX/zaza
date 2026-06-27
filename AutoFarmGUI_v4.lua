@@ -584,21 +584,27 @@ local function raidCycleLoop()
                 end
 
                 if raid.raidType == "invasion" then
-                    -- INVASION: Skip NPC dialog entirely, fire remote directly
-                    print("[AF] Firing invasions.create directly...")
-                    if R.createInvasion then
-                        local ok, err = pcall(function()
-                            R.createInvasion:InvokeServer(raid.name, {
-                                friendsOnly = State.friendOnly,
-                            })
-                        end)
-                        if ok then
-                            print("[AF] Invasion created!")
-                        else
-                            print("[AF] Invasion create failed: " .. tostring(err))
-                            continue
+                    print("[AF] Starting invasion through Bald Hero NPC...")
+
+                    local success = startInvasionViaNPC()
+
+                    if not success then
+                        print("[AF] NPC flow failed, trying remote fallback...")
+
+                        if R.createInvasion then
+                            local ok, err = pcall(function()
+                                R.createInvasion:InvokeServer(raid.name, {
+                                    friendsOnly = State.friendOnly,
+                                })
+                            end)
+
+                            if not ok then
+                                print("[AF] Invasion create failed: " .. tostring(err))
+                                continue
+                            end
                         end
                     end
+
                     task.wait(3)
                 else
                     -- BOSS RAID: Use UI click flow (Start Raid -> Yes)
