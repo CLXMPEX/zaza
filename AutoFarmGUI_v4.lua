@@ -584,80 +584,51 @@ local function raidCycleLoop()
                 end
 
                 if raid.raidType == "invasion" then
-                    -- Step 1: Press E — fire ProximityPrompts.BillboardGui.Frame.inner.TextButton
-                    local pressedE = false
-                    for attempt = 1, 8 do
-                        local ppGui = pgui:FindFirstChild("ProximityPrompts")
-                        if ppGui then
-                            for _, desc in ipairs(ppGui:GetDescendants()) do
-                                if desc:IsA("TextButton") then
-                                    local par = desc.Parent
-                                    if par and par.Name == "inner" then
-                                        pcall(function()
-                                            for _, conn in pairs(getconnections(desc.Activated)) do
-                                                conn:Fire()
-                                            end
-                                        end)
-                                        pressedE = true
-                                        print("[AF] Pressed E via ProximityPrompts!")
+                    -- Step 1: Press E ONCE (small radius to avoid wrong NPC)
+                    local _, myHRP = getChar()
+                    if myHRP then
+                        for _, desc in ipairs(Workspace:GetDescendants()) do
+                            if desc:IsA("ProximityPrompt") then
+                                local part = desc.Parent
+                                if part and part:IsA("BasePart") then
+                                    local dist = (myHRP.Position - part.Position).Magnitude
+                                    if dist < 10 then
+                                        pcall(function() fireproximityprompt(desc) end)
+                                        print("[AF] Pressed E (dist=" .. math.floor(dist) .. ")")
                                         break
                                     end
                                 end
                             end
                         end
-                        if pressedE then break end
-                        task.wait(0.5)
                     end
 
-                    if not pressedE then
-                        print("[AF] Could not find E button, retrying cycle...")
-                        continue
-                    end
-
-                    task.wait(1.5)
-
-                    -- Step 2: Click "Lead me" — find TextButton in dialogue.BillboardGui
-                    local clickedLead = false
-                    for attempt = 1, 8 do
-                        local dlgGui = pgui:FindFirstChild("dialogue")
-                        if dlgGui then
-                            -- Find TextLabel with "Lead me" text, then find sibling TextButton
-                            for _, desc in ipairs(dlgGui:GetDescendants()) do
-                                if desc:IsA("TextLabel") and desc.Visible then
-                                    if string.find(string.lower(desc.Text), "lead me", 1, true) then
-                                        -- TextButton is a sibling in same parent Frame
-                                        local parentFrame = desc.Parent
-                                        if parentFrame then
-                                            for _, sibling in ipairs(parentFrame:GetChildren()) do
-                                                if sibling:IsA("TextButton") then
-                                                    pcall(function()
-                                                        for _, conn in pairs(getconnections(sibling.Activated)) do
-                                                            conn:Fire()
-                                                        end
-                                                    end)
-                                                    clickedLead = true
-                                                    print("[AF] Clicked 'Lead me to the invasion'!")
-                                                    break
-                                                end
-                                            end
-                                        end
-                                        if clickedLead then break end
-                                    end
+                    -- Step 2: Wait up to 5s for dialog, do NOT press E again
+                    local foundLead = false
+                    for attempt = 1, 10 do
+                        for _, obj in ipairs(pgui:GetDescendants()) do
+                            if obj:IsA("TextLabel") and obj.Visible then
+                                if string.find(string.lower(obj.Text), "lead me", 1, true) then
+                                    foundLead = true
+                                    break
                                 end
                             end
                         end
-                        if clickedLead then break end
+                        if foundLead then break end
                         task.wait(0.5)
                     end
 
-                    if not clickedLead then
-                        print("[AF] Could not click Lead me, retrying cycle...")
+                    -- Step 3: Click "Lead me to the invasion"
+                    if foundLead then
+                        task.wait(0.3)
+                        clickByText("lead me to the invasion")
+                        print("[AF] Clicked Lead me!")
+                        task.wait(2)
+                    else
+                        print("[AF] Dialog didn't appear, retrying...")
                         continue
                     end
 
-                    task.wait(2)
-
-                    -- Step 3: Wait for Start Invasion UI then click it + Yes
+                    -- Step 4: Wait for Start Invasion UI (same flow as Sunshine)
                     local uiFound = false
                     for attempt = 1, 10 do
                         for _, obj in ipairs(pgui:GetDescendants()) do
@@ -672,16 +643,13 @@ local function raidCycleLoop()
                         task.wait(0.5)
                     end
 
-                    if uiFound then
-                        createRaid()
-                    else
-                        print("[AF] Start Invasion UI not found, trying remote...")
-                        if R.createInvasion then
-                            pcall(function()
-                                R.createInvasion:InvokeServer(raid.name, {friendsOnly = State.friendOnly})
-                            end)
-                        end
+                    if not uiFound then
+                        print("[AF] Start Invasion UI not found, retrying...")
+                        continue
                     end
+
+                    -- Step 5: Click Start Invasion -> Yes (exactly like Sunshine Lake)
+                    createRaid()
                     task.wait(4)
 
                 else
