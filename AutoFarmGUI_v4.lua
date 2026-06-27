@@ -580,32 +580,110 @@ local function raidCycleLoop()
                 if hrp then
                     print("[AF] Teleporting to " .. raid.display .. " portal...")
                     hrp.CFrame = raid.portalPos
-                    task.wait(1)
+                    task.wait(2)
                 end
 
                 if raid.raidType == "invasion" then
-                    print("[AF] Starting invasion through Bald Hero NPC...")
-
-                    local success = startInvasionViaNPC()
-
-                    if not success then
-                        print("[AF] NPC flow failed, trying remote fallback...")
-
-                        if R.createInvasion then
-                            local ok, err = pcall(function()
-                                R.createInvasion:InvokeServer(raid.name, {
-                                    friendsOnly = State.friendOnly,
-                                })
-                            end)
-
-                            if not ok then
-                                print("[AF] Invasion create failed: " .. tostring(err))
-                                continue
+                    -- Step 1: Press E — fire ProximityPrompts.BillboardGui.Frame.inner.TextButton
+                    local pressedE = false
+                    for attempt = 1, 8 do
+                        local ppGui = pgui:FindFirstChild("ProximityPrompts")
+                        if ppGui then
+                            for _, desc in ipairs(ppGui:GetDescendants()) do
+                                if desc:IsA("TextButton") then
+                                    local par = desc.Parent
+                                    if par and par.Name == "inner" then
+                                        pcall(function()
+                                            for _, conn in pairs(getconnections(desc.Activated)) do
+                                                conn:Fire()
+                                            end
+                                        end)
+                                        pressedE = true
+                                        print("[AF] Pressed E via ProximityPrompts!")
+                                        break
+                                    end
+                                end
                             end
                         end
+                        if pressedE then break end
+                        task.wait(0.5)
                     end
 
-                    task.wait(3)
+                    if not pressedE then
+                        print("[AF] Could not find E button, retrying cycle...")
+                        continue
+                    end
+
+                    task.wait(1.5)
+
+                    -- Step 2: Click "Lead me" — find TextButton in dialogue.BillboardGui
+                    local clickedLead = false
+                    for attempt = 1, 8 do
+                        local dlgGui = pgui:FindFirstChild("dialogue")
+                        if dlgGui then
+                            -- Find TextLabel with "Lead me" text, then find sibling TextButton
+                            for _, desc in ipairs(dlgGui:GetDescendants()) do
+                                if desc:IsA("TextLabel") and desc.Visible then
+                                    if string.find(string.lower(desc.Text), "lead me", 1, true) then
+                                        -- TextButton is a sibling in same parent Frame
+                                        local parentFrame = desc.Parent
+                                        if parentFrame then
+                                            for _, sibling in ipairs(parentFrame:GetChildren()) do
+                                                if sibling:IsA("TextButton") then
+                                                    pcall(function()
+                                                        for _, conn in pairs(getconnections(sibling.Activated)) do
+                                                            conn:Fire()
+                                                        end
+                                                    end)
+                                                    clickedLead = true
+                                                    print("[AF] Clicked 'Lead me to the invasion'!")
+                                                    break
+                                                end
+                                            end
+                                        end
+                                        if clickedLead then break end
+                                    end
+                                end
+                            end
+                        end
+                        if clickedLead then break end
+                        task.wait(0.5)
+                    end
+
+                    if not clickedLead then
+                        print("[AF] Could not click Lead me, retrying cycle...")
+                        continue
+                    end
+
+                    task.wait(2)
+
+                    -- Step 3: Wait for Start Invasion UI then click it + Yes
+                    local uiFound = false
+                    for attempt = 1, 10 do
+                        for _, obj in ipairs(pgui:GetDescendants()) do
+                            if obj:IsA("TextLabel") and obj.Visible then
+                                if string.find(string.lower(obj.Text), "start invasion", 1, true) then
+                                    uiFound = true
+                                    break
+                                end
+                            end
+                        end
+                        if uiFound then break end
+                        task.wait(0.5)
+                    end
+
+                    if uiFound then
+                        createRaid()
+                    else
+                        print("[AF] Start Invasion UI not found, trying remote...")
+                        if R.createInvasion then
+                            pcall(function()
+                                R.createInvasion:InvokeServer(raid.name, {friendsOnly = State.friendOnly})
+                            end)
+                        end
+                    end
+                    task.wait(4)
+
                 else
                     -- BOSS RAID: Use UI click flow (Start Raid -> Yes)
                     local uiFound = false
