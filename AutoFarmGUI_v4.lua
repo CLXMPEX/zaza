@@ -1,4 +1,4 @@
--- === Open Treasure Hunt Page ===
+-- === TH Opener v2 (Compact) ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -28,7 +28,7 @@ local bar = Instance.new("TextLabel")
 bar.Size = UDim2.new(1, 0, 0, 28)
 bar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 bar.BorderSizePixel = 0
-bar.Text = "  TH Opener — Running..."
+bar.Text = "  TH v2 — Running..."
 bar.TextColor3 = Color3.fromRGB(255, 255, 255)
 bar.TextSize = 12
 bar.Font = Enum.Font.GothamBold
@@ -117,8 +117,8 @@ end
 copyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(logText)
-        bar.Text = "  TH Opener — Copied!"
-        task.delay(2, function() if bar then bar.Text = "  TH Opener — Ready" end end)
+        bar.Text = "  TH v2 — Copied!"
+        task.delay(2, function() if bar then bar.Text = "  TH v2 — Ready" end end)
     end
 end)
 
@@ -127,112 +127,164 @@ clearBtn.MouseButton1Click:Connect(function()
     output.Text = "Cleared."
 end)
 
--- Load modules
-local pagesModule
+local function safeStr(v, depth)
+    depth = depth or 0
+    if depth > 2 then return "..." end
+    if typeof(v) == "string" then return '"' .. v .. '"' end
+    if typeof(v) == "number" or typeof(v) == "boolean" then return tostring(v) end
+    if v == nil then return "nil" end
+    if typeof(v) == "table" then
+        local parts = {}
+        local count = 0
+        for k2, v2 in pairs(v) do
+            count = count + 1
+            if count > 20 then table.insert(parts, "...") break end
+            table.insert(parts, tostring(k2) .. "=" .. safeStr(v2, depth + 1))
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
+    end
+    return typeof(v) .. ":" .. tostring(v)
+end
+
+-- Load pages store
+local pages
 for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
-    if desc:IsA("ModuleScript") and desc.Name == "pages" and desc:GetFullName():find("app.common.store") then
-        pagesModule = desc
+    if desc:IsA("ModuleScript") and desc.Name == "pages" and desc:GetFullName():find("app.common.store.pages") then
+        local ok, r = pcall(function() return require(desc) end)
+        if ok then pages = r end
         break
     end
 end
 
-local pages, openPage, togglePage, pageStore
-
-if pagesModule then
-    local ok, result = pcall(function() return require(pagesModule) end)
-    if ok and typeof(result) == "table" then
-        pages = result
-        openPage = result.openPage
-        togglePage = result.togglePage
-        pageStore = result.pageStore
-        log("Pages store loaded OK")
-    else
-        log("Failed to load pages: " .. tostring(result))
-    end
-else
-    log("Pages module not found!")
-end
-
--- Try different page ID formats
-local function tryOpen(id)
-    log("\nTrying openPage('" .. id .. "')...")
-    local ok, err = pcall(function()
-        openPage(id)
-    end)
-    if ok then
-        log("  openPage OK!")
-    else
-        log("  Error: " .. tostring(err))
-    end
-
-    -- Check pageStore after
-    if pageStore then
-        local ok2, val = pcall(pageStore)
-        if ok2 then
-            log("  pageStore now: id=" .. tostring(val.id) .. " priority=" .. tostring(val.priority))
-        end
+-- Load charm
+local charm
+for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
+    if desc:IsA("ModuleScript") and desc.Name == "charm" and not desc:GetFullName():find("sync") and not desc:GetFullName():find("payload") and not desc:GetFullName():find("vide") then
+        local ok, r = pcall(function() return require(desc) end)
+        if ok then charm = r end
+        break
     end
 end
 
--- Auto-run: try common ID patterns
-local function runAll()
+local function runScan()
     logText = ""
     output.Text = ""
-    bar.Text = "  TH Opener — Trying..."
+    bar.Text = "  TH v2 — Scanning..."
 
-    if not openPage then
-        log("No openPage function!")
-        return
-    end
-
-    -- Try the most likely IDs
-    local ids = {
-        "treasure-hunt",
-        "treasureHunt",
-        "treasure_hunt",
-        "TreasureHunt",
-        "Treasure Hunt",
-    }
-
-    for _, id in pairs(ids) do
-        tryOpen(id)
-        -- If pageStore shows it worked, stop
-        if pageStore then
-            local ok, val = pcall(pageStore)
-            if ok and val.id ~= "" then
-                log("\nSUCCESS! Page opened with id: " .. val.id)
-                bar.Text = "  TH Opener — Opened!"
-                return
-            end
+    -- 1) Look at the treasure-hunt component to find the page ID it registers
+    log("====== TH COMPONENT MODULE ======")
+    local thComp
+    for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
+        if desc:IsA("ModuleScript") and desc.Name == "treasure-hunt" and desc:GetFullName():find("pages") then
+            thComp = desc
+            break
         end
     end
-
-    -- Also try togglePage
-    log("\n\nTrying togglePage variants...")
-    for _, id in pairs({"treasure-hunt", "treasureHunt"}) do
-        log("togglePage('" .. id .. "')...")
-        local ok, err = pcall(function() togglePage(id) end)
+    if thComp then
+        log("Found: " .. thComp:GetFullName())
+        local ok, result = pcall(function() return require(thComp) end)
         if ok then
-            log("  togglePage OK!")
-            if pageStore then
-                local ok2, val = pcall(pageStore)
-                if ok2 then
-                    log("  pageStore: id=" .. tostring(val.id))
-                    if val.id ~= "" then
-                        log("\nSUCCESS via toggle!")
-                        bar.Text = "  TH Opener — Opened!"
-                        return
+            log("Type: " .. typeof(result))
+            if typeof(result) == "table" then
+                for k, v in pairs(result) do
+                    log("  " .. tostring(k) .. " = " .. typeof(v))
+                    if typeof(v) == "string" then
+                        log("    -> " .. v)
                     end
                 end
             end
         else
-            log("  Error: " .. tostring(err))
+            log("Require err: " .. tostring(result):sub(1, 100))
         end
     end
 
-    log("\nNone worked. Check output for clues.")
-    bar.Text = "  TH Opener — Done. Hit COPY"
+    -- 2) Look at the pages.lua component that registers all pages
+    log("\n====== PAGES COMPONENT (router) ======")
+    local pagesComp
+    for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
+        if desc:IsA("ModuleScript") and desc.Name == "pages" and desc:GetFullName():find("components.pages.pages") then
+            pagesComp = desc
+            break
+        end
+    end
+    if pagesComp then
+        log("Found: " .. pagesComp:GetFullName())
+        local ok, result = pcall(function() return require(pagesComp) end)
+        if ok then
+            log("Type: " .. typeof(result))
+            if typeof(result) == "table" then
+                for k, v in pairs(result) do
+                    log("  " .. tostring(k) .. " = " .. typeof(v))
+                    if typeof(v) == "table" then
+                        log("    " .. safeStr(v))
+                    end
+                end
+            end
+        else
+            log("Require err: " .. tostring(result):sub(1, 100))
+        end
+    end
+
+    -- 3) Try openPage with TABLE arguments
+    log("\n====== TRYING TABLE ARGS ======")
+    if pages and pages.openPage then
+        -- Close any open page first
+        pcall(pages.closePage)
+        task.wait(0.1)
+
+        local formats = {
+            {id = "treasure-hunt"},
+            {id = "treasure-hunt", priority = 0, canManuallyClose = true, source = ""},
+            {id = "treasure-hunt", priority = 1, canManuallyClose = true, source = "dialogue"},
+            {id = "treasure-hunt", priority = 0, canManuallyClose = true, source = "npc"},
+        }
+
+        for i, args in pairs(formats) do
+            pcall(pages.closePage)
+            task.wait(0.1)
+            log("\nTry #" .. i .. ": " .. safeStr(args))
+            local ok, err = pcall(function()
+                pages.openPage(args)
+            end)
+            log("  Result: " .. (ok and "OK" or tostring(err):sub(1, 80)))
+
+            if pages.pageStore then
+                local ok2, val = pcall(pages.pageStore)
+                if ok2 then
+                    log("  Store: " .. safeStr(val))
+                end
+            end
+            task.wait(0.3)
+        end
+
+        -- 4) Also try setting the atom directly with Charm
+        log("\n====== DIRECT ATOM SET ======")
+        if charm and pages.pageStore then
+            log("Trying direct atom set...")
+            pcall(pages.closePage)
+            task.wait(0.1)
+
+            local ok, err = pcall(function()
+                pages.pageStore({
+                    id = "treasure-hunt",
+                    priority = 0,
+                    canManuallyClose = true,
+                    source = ""
+                })
+            end)
+            log("Direct set: " .. (ok and "OK" or tostring(err):sub(1, 80)))
+
+            task.wait(0.3)
+            local ok2, val = pcall(pages.pageStore)
+            if ok2 then log("Store now: " .. safeStr(val)) end
+        end
+    else
+        log("No pages store loaded!")
+    end
+
+    log("\n====== DONE ======")
+    bar.Text = "  TH v2 — Done! Hit COPY"
 end
 
-openBtn.MouseButton1Click:Connect(function() runAll() end)
-runAll()
+openBtn.MouseButton1Click:Connect(function() runScan() end)
+runScan()
