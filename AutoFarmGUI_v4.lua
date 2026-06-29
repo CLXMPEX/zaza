@@ -1,4 +1,4 @@
--- === Page Store Dive v6 (Compact) ===
+-- === Open Treasure Hunt Page ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -28,7 +28,7 @@ local bar = Instance.new("TextLabel")
 bar.Size = UDim2.new(1, 0, 0, 28)
 bar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 bar.BorderSizePixel = 0
-bar.Text = "  TH v6 — Scanning..."
+bar.Text = "  TH Opener — Running..."
 bar.TextColor3 = Color3.fromRGB(255, 255, 255)
 bar.TextSize = 12
 bar.Font = Enum.Font.GothamBold
@@ -79,7 +79,7 @@ end
 
 local copyBtn = makeBtn("COPY", Color3.fromRGB(80, 160, 50))
 local clearBtn = makeBtn("CLEAR", Color3.fromRGB(180, 50, 50))
-local rescanBtn = makeBtn("RE-SCAN", Color3.fromRGB(0, 120, 215))
+local openBtn = makeBtn("OPEN TH", Color3.fromRGB(200, 120, 0))
 
 local scroll = Instance.new("ScrollingFrame")
 scroll.Size = UDim2.new(1, -12, 1, -72)
@@ -117,8 +117,8 @@ end
 copyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(logText)
-        bar.Text = "  TH v6 — Copied!"
-        task.delay(2, function() if bar then bar.Text = "  TH v6 — Ready" end end)
+        bar.Text = "  TH Opener — Copied!"
+        task.delay(2, function() if bar then bar.Text = "  TH Opener — Ready" end end)
     end
 end)
 
@@ -127,159 +127,112 @@ clearBtn.MouseButton1Click:Connect(function()
     output.Text = "Cleared."
 end)
 
-local function safeStr(v, depth)
-    depth = depth or 0
-    if depth > 2 then return "..." end
-    if typeof(v) == "string" then return '"' .. v .. '"' end
-    if typeof(v) == "number" or typeof(v) == "boolean" then return tostring(v) end
-    if v == nil then return "nil" end
-    if typeof(v) == "table" then
-        local parts = {}
-        local count = 0
-        for k2, v2 in pairs(v) do
-            count = count + 1
-            if count > 15 then table.insert(parts, "...") break end
-            table.insert(parts, tostring(k2) .. "=" .. safeStr(v2, depth + 1))
-        end
-        return "{" .. table.concat(parts, ", ") .. "}"
+-- Load modules
+local pagesModule
+for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
+    if desc:IsA("ModuleScript") and desc.Name == "pages" and desc:GetFullName():find("app.common.store") then
+        pagesModule = desc
+        break
     end
-    return typeof(v) .. ":" .. tostring(v)
 end
 
-local function runScan()
+local pages, openPage, togglePage, pageStore
+
+if pagesModule then
+    local ok, result = pcall(function() return require(pagesModule) end)
+    if ok and typeof(result) == "table" then
+        pages = result
+        openPage = result.openPage
+        togglePage = result.togglePage
+        pageStore = result.pageStore
+        log("Pages store loaded OK")
+    else
+        log("Failed to load pages: " .. tostring(result))
+    end
+else
+    log("Pages module not found!")
+end
+
+-- Try different page ID formats
+local function tryOpen(id)
+    log("\nTrying openPage('" .. id .. "')...")
+    local ok, err = pcall(function()
+        openPage(id)
+    end)
+    if ok then
+        log("  openPage OK!")
+    else
+        log("  Error: " .. tostring(err))
+    end
+
+    -- Check pageStore after
+    if pageStore then
+        local ok2, val = pcall(pageStore)
+        if ok2 then
+            log("  pageStore now: id=" .. tostring(val.id) .. " priority=" .. tostring(val.priority))
+        end
+    end
+end
+
+-- Auto-run: try common ID patterns
+local function runAll()
     logText = ""
     output.Text = ""
-    bar.Text = "  TH v6 — Scanning..."
+    bar.Text = "  TH Opener — Trying..."
 
-    log("====== FINDING PAGES MODULE ======")
-    local pagesModule, pagesQueueModule, usePageModule
+    if not openPage then
+        log("No openPage function!")
+        return
+    end
 
-    local playerScripts = player:FindFirstChild("PlayerScripts")
-    if playerScripts then
-        for _, desc in pairs(playerScripts:GetDescendants()) do
-            if desc:IsA("ModuleScript") then
-                if desc.Name == "pages" and desc:GetFullName():find("store") then
-                    pagesModule = desc
-                elseif desc.Name == "pages-queue" then
-                    pagesQueueModule = desc
-                elseif desc.Name == "use-page" then
-                    usePageModule = desc
-                end
+    -- Try the most likely IDs
+    local ids = {
+        "treasure-hunt",
+        "treasureHunt",
+        "treasure_hunt",
+        "TreasureHunt",
+        "Treasure Hunt",
+    }
+
+    for _, id in pairs(ids) do
+        tryOpen(id)
+        -- If pageStore shows it worked, stop
+        if pageStore then
+            local ok, val = pcall(pageStore)
+            if ok and val.id ~= "" then
+                log("\nSUCCESS! Page opened with id: " .. val.id)
+                bar.Text = "  TH Opener — Opened!"
+                return
             end
         end
     end
 
-    if not pagesModule then
-        for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
-            if desc:IsA("ModuleScript") then
-                if desc.Name == "pages" and desc:GetFullName():find("store") then
-                    pagesModule = desc
-                elseif desc.Name == "pages-queue" then
-                    pagesQueueModule = desc
-                elseif desc.Name == "use-page" then
-                    usePageModule = desc
-                end
-            end
-        end
-    end
-
-    log("\n====== PAGES STORE ======")
-    if pagesModule then
-        log("Found: " .. pagesModule:GetFullName())
-        local ok, result = pcall(function() return require(pagesModule) end)
+    -- Also try togglePage
+    log("\n\nTrying togglePage variants...")
+    for _, id in pairs({"treasure-hunt", "treasureHunt"}) do
+        log("togglePage('" .. id .. "')...")
+        local ok, err = pcall(function() togglePage(id) end)
         if ok then
-            log("Type: " .. typeof(result))
-            if typeof(result) == "table" then
-                for k, v in pairs(result) do
-                    local valStr = typeof(v)
-                    if typeof(v) == "function" then
-                        local ok2, val = pcall(v)
-                        if ok2 then valStr = "fn() -> " .. safeStr(val) else valStr = "fn(err: " .. tostring(val):sub(1, 60) .. ")" end
-                    elseif typeof(v) == "table" then
-                        valStr = safeStr(v)
-                    else
-                        valStr = safeStr(v)
+            log("  togglePage OK!")
+            if pageStore then
+                local ok2, val = pcall(pageStore)
+                if ok2 then
+                    log("  pageStore: id=" .. tostring(val.id))
+                    if val.id ~= "" then
+                        log("\nSUCCESS via toggle!")
+                        bar.Text = "  TH Opener — Opened!"
+                        return
                     end
-                    log("  " .. tostring(k) .. " = " .. valStr)
                 end
             end
         else
-            log("Require failed: " .. tostring(result))
-        end
-    else
-        log("NOT FOUND")
-    end
-
-    log("\n====== PAGES QUEUE ======")
-    if pagesQueueModule then
-        log("Found: " .. pagesQueueModule:GetFullName())
-        local ok, result = pcall(function() return require(pagesQueueModule) end)
-        if ok and typeof(result) == "table" then
-            for k, v in pairs(result) do
-                local valStr = typeof(v)
-                if typeof(v) == "function" then
-                    local ok2, val = pcall(v)
-                    if ok2 then valStr = "fn() -> " .. safeStr(val) else valStr = "fn(err)" end
-                end
-                log("  " .. tostring(k) .. " = " .. valStr)
-            end
-        else
-            log("Failed: " .. tostring(result))
-        end
-    else
-        log("NOT FOUND")
-    end
-
-    log("\n====== USE-PAGE ======")
-    if usePageModule then
-        log("Found: " .. usePageModule:GetFullName())
-        local ok, result = pcall(function() return require(usePageModule) end)
-        if ok and typeof(result) == "table" then
-            for k, v in pairs(result) do
-                log("  " .. tostring(k) .. " = " .. typeof(v))
-            end
-        elseif ok and typeof(result) == "function" then
-            log("  Exported as single function")
-        else
-            log("Failed: " .. tostring(result))
-        end
-    else
-        log("NOT FOUND")
-    end
-
-    log("\n====== CHARM LIB ======")
-    local charmMod
-    for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-        if desc:IsA("ModuleScript") and desc.Name == "charm" and not desc:GetFullName():find("sync") and not desc:GetFullName():find("payload") and not desc:GetFullName():find("vide") then
-            charmMod = desc
-            break
-        end
-    end
-    if charmMod then
-        log("Found: " .. charmMod:GetFullName())
-        local ok, charm = pcall(function() return require(charmMod) end)
-        if ok and typeof(charm) == "table" then
-            for k, v in pairs(charm) do
-                log("  " .. tostring(k) .. " = " .. typeof(v))
-            end
+            log("  Error: " .. tostring(err))
         end
     end
 
-    log("\n====== ALL STORE MODULES ======")
-    local roots2 = {playerScripts, game:GetService("StarterPlayer")}
-    for _, root in pairs(roots2) do
-        if root then
-            for _, desc in pairs(root:GetDescendants()) do
-                if desc:IsA("ModuleScript") and desc:GetFullName():find("store") then
-                    log(desc:GetFullName())
-                end
-            end
-        end
-    end
-
-    log("\n====== DONE ======")
-    bar.Text = "  TH v6 — Done! Hit COPY"
+    log("\nNone worked. Check output for clues.")
+    bar.Text = "  TH Opener — Done. Hit COPY"
 end
 
-rescanBtn.MouseButton1Click:Connect(function() runScan() end)
-runScan()
+openBtn.MouseButton1Click:Connect(function() runAll() end)
+runAll()
