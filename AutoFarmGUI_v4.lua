@@ -1,25 +1,13 @@
--- Regular Roblox Treasure Hunt Finder
--- LocalScript for StarterPlayerScripts or StarterGui
-
 local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
 local TERMS = {
-	"treasure",
-	"treasurehunt",
-	"treasure hunt",
-	"hunt",
-	"dig",
-	"shovel",
-	"water goddess",
-	"goddess",
-	"tier",
-	"reward",
-	"clam",
-	"found",
+	"treasure","treasurehunt","treasure hunt","hunt","dig","shovel",
+	"water goddess","goddess","tier","reward","clam","found"
 }
 
 local SEARCH_ROOTS = {
@@ -44,7 +32,7 @@ local function matchesTerm(text, extra)
 		end
 	end
 
-	return false, nil
+	return false
 end
 
 local function scoreObject(obj, extra)
@@ -57,36 +45,19 @@ local function scoreObject(obj, extra)
 	end
 
 	local okName, nameHit = matchesTerm(obj.Name, extra)
-	if okName then
-		add(8, "name:" .. nameHit)
-	end
+	if okName then add(8, "name:" .. nameHit) end
 
 	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
 		local okText, textHit = matchesTerm(obj.Text, extra)
-		if okText then
-			add(10, "text:" .. textHit)
-		end
+		if okText then add(10, "text:" .. textHit) end
 	end
 
-	if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-		add(6, obj.ClassName)
-	end
+	if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then add(6, obj.ClassName) end
+	if obj:IsA("ScreenGui") or obj:IsA("Frame") or obj:IsA("ImageButton") or obj:IsA("TextButton") then add(4, "GUI") end
+	if obj:IsA("ProximityPrompt") or obj:IsA("ClickDetector") then add(6, "interaction") end
+	if obj:IsA("Model") and okName then add(3, "model") end
 
-	if obj:IsA("ScreenGui") or obj:IsA("Frame") or obj:IsA("ImageButton") or obj:IsA("TextButton") then
-		add(4, "GUI")
-	end
-
-	if obj:IsA("ProximityPrompt") or obj:IsA("ClickDetector") then
-		add(6, "interaction")
-	end
-
-	if obj:IsA("Model") and okName then
-		add(3, "model")
-	end
-
-	if score <= 0 then
-		return nil
-	end
+	if score <= 0 then return nil end
 
 	return {
 		score = score,
@@ -102,48 +73,55 @@ gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.fromOffset(700, 480)
+frame.Size = UDim2.fromOffset(430, 315)
 frame.Position = UDim2.fromScale(0.5, 0.5)
 frame.AnchorPoint = Vector2.new(0.5, 0.5)
 frame.BackgroundColor3 = Color3.fromRGB(28, 31, 38)
 frame.Parent = gui
-
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 34)
+titleBar.BackgroundColor3 = Color3.fromRGB(38, 43, 53)
+titleBar.Parent = frame
 
 local title = Instance.new("TextLabel")
 title.BackgroundTransparency = 1
-title.Position = UDim2.fromOffset(16, 10)
-title.Size = UDim2.new(1, -32, 0, 30)
+title.Position = UDim2.fromOffset(10, 0)
+title.Size = UDim2.new(1, -20, 1, 0)
 title.Font = Enum.Font.GothamBold
-title.TextSize = 20
+title.TextSize = 14
 title.TextColor3 = Color3.new(1, 1, 1)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "Treasure Hunt Finder"
-title.Parent = frame
+title.Text = "Treasure Finder"
+title.Parent = titleBar
 
 local extraBox = Instance.new("TextBox")
-extraBox.Position = UDim2.fromOffset(16, 52)
-extraBox.Size = UDim2.new(1, -228, 0, 34)
+extraBox.Position = UDim2.fromOffset(10, 44)
+extraBox.Size = UDim2.new(1, -170, 0, 28)
 extraBox.ClearTextOnFocus = false
-extraBox.PlaceholderText = "Extra words, comma separated"
+extraBox.PlaceholderText = "extra words"
 extraBox.Text = ""
+extraBox.TextSize = 12
 extraBox.Parent = frame
 
 local scanButton = Instance.new("TextButton")
-scanButton.Position = UDim2.new(1, -204, 0, 52)
-scanButton.Size = UDim2.fromOffset(88, 34)
+scanButton.Position = UDim2.new(1, -150, 0, 44)
+scanButton.Size = UDim2.fromOffset(66, 28)
 scanButton.Text = "Scan"
+scanButton.TextSize = 12
 scanButton.Parent = frame
 
 local copyButton = Instance.new("TextButton")
-copyButton.Position = UDim2.new(1, -108, 0, 52)
-copyButton.Size = UDim2.fromOffset(92, 34)
+copyButton.Position = UDim2.new(1, -76, 0, 44)
+copyButton.Size = UDim2.fromOffset(66, 28)
 copyButton.Text = "Copy"
+copyButton.TextSize = 12
 copyButton.Parent = frame
 
 local output = Instance.new("TextBox")
-output.Position = UDim2.fromOffset(16, 100)
-output.Size = UDim2.new(1, -32, 1, -116)
+output.Position = UDim2.fromOffset(10, 82)
+output.Size = UDim2.new(1, -20, 1, -92)
 output.MultiLine = true
 output.ClearTextOnFocus = false
 output.TextEditable = true
@@ -151,11 +129,42 @@ output.TextWrapped = false
 output.TextXAlignment = Enum.TextXAlignment.Left
 output.TextYAlignment = Enum.TextYAlignment.Top
 output.Font = Enum.Font.Code
-output.TextSize = 14
+output.TextSize = 11
 output.TextColor3 = Color3.fromRGB(235, 235, 235)
 output.BackgroundColor3 = Color3.fromRGB(18, 21, 27)
-output.Text = "Press Scan. This searches PlayerGui, ReplicatedStorage, and Workspace."
+output.Text = "Press Scan."
 output.Parent = frame
+
+-- drag window
+local dragging = false
+local dragStart
+local startPos
+
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = true
+		dragStart = input.Position
+		startPos = frame.Position
+	end
+end)
+
+titleBar.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		dragging = false
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+		local delta = input.Position - dragStart
+		frame.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + delta.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + delta.Y
+		)
+	end
+end)
 
 scanButton.MouseButton1Click:Connect(function()
 	local results = {}
@@ -163,9 +172,7 @@ scanButton.MouseButton1Click:Connect(function()
 	for _, root in ipairs(SEARCH_ROOTS) do
 		for _, obj in ipairs(root:GetDescendants()) do
 			local result = scoreObject(obj, extraBox.Text)
-			if result then
-				table.insert(results, result)
-			end
+			if result then table.insert(results, result) end
 		end
 	end
 
@@ -173,19 +180,14 @@ scanButton.MouseButton1Click:Connect(function()
 		return a.score > b.score
 	end)
 
-	local lines = {
-		"Treasure Hunt Finder Results",
-		"Searches live client objects only, not script source.",
-		"",
-	}
+	local lines = {"Treasure Finder Results", ""}
 
 	if #results == 0 then
 		table.insert(lines, "No matches found.")
 	else
 		for i, result in ipairs(results) do
-			if i > 50 then break end
-
-			table.insert(lines, ("[%d] Score %d | %s"):format(i, result.score, result.className))
+			if i > 35 then break end
+			table.insert(lines, ("[%d] %d | %s"):format(i, result.score, result.className))
 			table.insert(lines, result.path)
 			table.insert(lines, "Hits: " .. result.hits)
 			table.insert(lines, "")
