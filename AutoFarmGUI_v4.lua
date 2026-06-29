@@ -1,4 +1,4 @@
--- === TH Opener v2 (Compact) ===
+-- === TH Data Check + Open v3 ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -28,7 +28,7 @@ local bar = Instance.new("TextLabel")
 bar.Size = UDim2.new(1, 0, 0, 28)
 bar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 bar.BorderSizePixel = 0
-bar.Text = "  TH v2 — Running..."
+bar.Text = "  TH v3 — Running..."
 bar.TextColor3 = Color3.fromRGB(255, 255, 255)
 bar.TextSize = 12
 bar.Font = Enum.Font.GothamBold
@@ -117,8 +117,8 @@ end
 copyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(logText)
-        bar.Text = "  TH v2 — Copied!"
-        task.delay(2, function() if bar then bar.Text = "  TH v2 — Ready" end end)
+        bar.Text = "  TH v3 — Copied!"
+        task.delay(2, function() if bar then bar.Text = "  TH v3 — Ready" end end)
     end
 end)
 
@@ -129,7 +129,7 @@ end)
 
 local function safeStr(v, depth)
     depth = depth or 0
-    if depth > 2 then return "..." end
+    if depth > 3 then return "..." end
     if typeof(v) == "string" then return '"' .. v .. '"' end
     if typeof(v) == "number" or typeof(v) == "boolean" then return tostring(v) end
     if v == nil then return "nil" end
@@ -146,144 +146,165 @@ local function safeStr(v, depth)
     return typeof(v) .. ":" .. tostring(v)
 end
 
--- Load pages store
-local pages
+-- Load modules
+local pages, pagesQueue, atoms, charm, dialogue
+
 for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
-    if desc:IsA("ModuleScript") and desc.Name == "pages" and desc:GetFullName():find("app.common.store.pages") then
-        local ok, r = pcall(function() return require(desc) end)
-        if ok then pages = r end
-        break
+    if desc:IsA("ModuleScript") then
+        local fp = desc:GetFullName()
+        if desc.Name == "pages" and fp:find("app.common.store.pages$") then
+            pcall(function() pages = require(desc) end)
+        elseif desc.Name == "pages-queue" then
+            pcall(function() pagesQueue = require(desc) end)
+        elseif desc.Name == "dialogue" and fp:find("store") then
+            pcall(function() dialogue = require(desc) end)
+        end
     end
 end
 
--- Load charm
-local charm
 for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-    if desc:IsA("ModuleScript") and desc.Name == "charm" and not desc:GetFullName():find("sync") and not desc:GetFullName():find("payload") and not desc:GetFullName():find("vide") then
-        local ok, r = pcall(function() return require(desc) end)
-        if ok then charm = r end
-        break
+    if desc:IsA("ModuleScript") then
+        if desc.Name == "atoms" and desc:GetFullName():find("common.store.atoms") then
+            pcall(function() atoms = require(desc) end)
+        elseif desc.Name == "charm" and not desc:GetFullName():find("sync") and not desc:GetFullName():find("payload") and not desc:GetFullName():find("vide") then
+            pcall(function() charm = require(desc) end)
+        end
     end
 end
 
 local function runScan()
     logText = ""
     output.Text = ""
-    bar.Text = "  TH v2 — Scanning..."
+    bar.Text = "  TH v3 — Scanning..."
 
-    -- 1) Look at the treasure-hunt component to find the page ID it registers
-    log("====== TH COMPONENT MODULE ======")
-    local thComp
-    for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
-        if desc:IsA("ModuleScript") and desc.Name == "treasure-hunt" and desc:GetFullName():find("pages") then
-            thComp = desc
-            break
-        end
-    end
-    if thComp then
-        log("Found: " .. thComp:GetFullName())
-        local ok, result = pcall(function() return require(thComp) end)
-        if ok then
-            log("Type: " .. typeof(result))
-            if typeof(result) == "table" then
-                for k, v in pairs(result) do
-                    log("  " .. tostring(k) .. " = " .. typeof(v))
-                    if typeof(v) == "string" then
-                        log("    -> " .. v)
+    -- 1) Check datastore for treasure hunt data
+    log("====== PLAYER DATASTORE ======")
+    if atoms and typeof(atoms) == "table" then
+        local atomTable = atoms.atoms or atoms
+        if atomTable.datastore and typeof(atomTable.datastore) == "function" then
+            local ok, ds = pcall(atomTable.datastore)
+            if ok and typeof(ds) == "table" then
+                local pid = tostring(player.UserId)
+                local pdata = ds[pid] or ds[tonumber(pid)]
+                if pdata then
+                    log("Player data found. Scanning for TH keys...")
+                    for k, v in pairs(pdata) do
+                        local kl = tostring(k):lower()
+                        if kl:find("treasure") or kl:find("hunt") or kl:find("dig") or kl:find("shovel") or kl:find("tile") then
+                            log("  **" .. tostring(k) .. " = " .. safeStr(v) .. "**")
+                        end
                     end
-                end
-            end
-        else
-            log("Require err: " .. tostring(result):sub(1, 100))
-        end
-    end
-
-    -- 2) Look at the pages.lua component that registers all pages
-    log("\n====== PAGES COMPONENT (router) ======")
-    local pagesComp
-    for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
-        if desc:IsA("ModuleScript") and desc.Name == "pages" and desc:GetFullName():find("components.pages.pages") then
-            pagesComp = desc
-            break
-        end
-    end
-    if pagesComp then
-        log("Found: " .. pagesComp:GetFullName())
-        local ok, result = pcall(function() return require(pagesComp) end)
-        if ok then
-            log("Type: " .. typeof(result))
-            if typeof(result) == "table" then
-                for k, v in pairs(result) do
-                    log("  " .. tostring(k) .. " = " .. typeof(v))
-                    if typeof(v) == "table" then
-                        log("    " .. safeStr(v))
+                    -- Also dump ALL keys for reference
+                    log("\nAll datastore keys:")
+                    for k, v in pairs(pdata) do
+                        local vtype = typeof(v)
+                        if typeof(v) == "table" then
+                            local count = 0
+                            for _ in pairs(v) do count = count + 1 end
+                            vtype = "table(" .. count .. ")"
+                        end
+                        log("  " .. tostring(k) .. " = " .. vtype)
                     end
+                else
+                    log("No player data for userId " .. pid)
+                    log("Available keys: " .. safeStr(ds))
                 end
             end
-        else
-            log("Require err: " .. tostring(result):sub(1, 100))
         end
     end
 
-    -- 3) Try openPage with TABLE arguments
-    log("\n====== TRYING TABLE ARGS ======")
-    if pages and pages.openPage then
-        -- Close any open page first
-        pcall(pages.closePage)
-        task.wait(0.1)
-
-        local formats = {
-            {id = "treasure-hunt"},
-            {id = "treasure-hunt", priority = 0, canManuallyClose = true, source = ""},
-            {id = "treasure-hunt", priority = 1, canManuallyClose = true, source = "dialogue"},
-            {id = "treasure-hunt", priority = 0, canManuallyClose = true, source = "npc"},
-        }
-
-        for i, args in pairs(formats) do
-            pcall(pages.closePage)
-            task.wait(0.1)
-            log("\nTry #" .. i .. ": " .. safeStr(args))
-            local ok, err = pcall(function()
-                pages.openPage(args)
-            end)
-            log("  Result: " .. (ok and "OK" or tostring(err):sub(1, 80)))
-
-            if pages.pageStore then
-                local ok2, val = pcall(pages.pageStore)
-                if ok2 then
-                    log("  Store: " .. safeStr(val))
-                end
+    -- 2) Check dialogue store
+    log("\n====== DIALOGUE STORE ======")
+    if dialogue and typeof(dialogue) == "table" then
+        for k, v in pairs(dialogue) do
+            local valStr = typeof(v)
+            if typeof(v) == "function" then
+                local ok2, val = pcall(v)
+                if ok2 then valStr = "fn() -> " .. safeStr(val) else valStr = "fn(err)" end
             end
-            task.wait(0.3)
-        end
-
-        -- 4) Also try setting the atom directly with Charm
-        log("\n====== DIRECT ATOM SET ======")
-        if charm and pages.pageStore then
-            log("Trying direct atom set...")
-            pcall(pages.closePage)
-            task.wait(0.1)
-
-            local ok, err = pcall(function()
-                pages.pageStore({
-                    id = "treasure-hunt",
-                    priority = 0,
-                    canManuallyClose = true,
-                    source = ""
-                })
-            end)
-            log("Direct set: " .. (ok and "OK" or tostring(err):sub(1, 80)))
-
-            task.wait(0.3)
-            local ok2, val = pcall(pages.pageStore)
-            if ok2 then log("Store now: " .. safeStr(val)) end
+            log("  " .. tostring(k) .. " = " .. valStr)
         end
     else
-        log("No pages store loaded!")
+        log("Not loaded")
+    end
+
+    -- 3) Try openPage with just the string and watch what happens
+    log("\n====== OPEN PAGE (string) + MONITOR ======")
+    if pages then
+        pcall(pages.closePage)
+        task.wait(0.2)
+
+        -- Watch the atom
+        log("Before: " .. safeStr(pcall(pages.pageStore) and select(2, pcall(pages.pageStore)) or "err"))
+
+        local ok, err = pcall(function()
+            pages.openPage("treasure-hunt")
+        end)
+        log("openPage('treasure-hunt'): " .. (ok and "OK" or tostring(err)))
+
+        task.wait(0.1)
+        local ok2, val = pcall(pages.pageStore)
+        log("After 0.1s: " .. (ok2 and safeStr(val) or "err"))
+
+        task.wait(0.5)
+        local ok3, val2 = pcall(pages.pageStore)
+        log("After 0.5s: " .. (ok3 and safeStr(val2) or "err"))
+    end
+
+    -- 4) Try queuePage
+    log("\n====== QUEUE PAGE ======")
+    if pagesQueue then
+        pcall(pages.closePage)
+        task.wait(0.2)
+
+        for _, id in pairs({"treasure-hunt", "treasureHunt"}) do
+            log("\nqueuePage('" .. id .. "')...")
+            local ok, err = pcall(function()
+                pagesQueue.queuePage(id)
+            end)
+            log("  Result: " .. (ok and "OK" or tostring(err):sub(1, 80)))
+            task.wait(0.3)
+
+            local ok2, val = pcall(pages.pageStore)
+            log("  Store: " .. (ok2 and safeStr(val) or "err"))
+
+            local ok3, q = pcall(pagesQueue.queuedPages)
+            log("  Queue: " .. (ok3 and safeStr(q) or "err"))
+        end
+    end
+
+    -- 5) Check GUI tree after page is "open"
+    log("\n====== GUI AFTER OPEN ======")
+    pcall(pages.closePage)
+    task.wait(0.1)
+    pcall(function() pages.openPage("treasure-hunt") end)
+    task.wait(0.5)
+
+    local appGui = pgui:FindFirstChild("app")
+    if appGui then
+        local idx = 0
+        for _, child in pairs(appGui:GetChildren()) do
+            if child:IsA("Frame") then
+                idx = idx + 1
+                if not child.Visible then continue end
+                local descs = #child:GetDescendants()
+                if descs > 5 then
+                    -- Check if any descendant text mentions treasure
+                    for _, d in pairs(child:GetDescendants()) do
+                        if d:IsA("TextLabel") or d:IsA("TextButton") then
+                            local txt = d.Text:lower()
+                            if txt:find("treasure") or txt:find("hunt") or txt:find("dig") or txt:find("tier") or txt:find("shovel") then
+                                log("Frame#" .. idx .. " has text: " .. d.Text:sub(1, 50))
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     log("\n====== DONE ======")
-    bar.Text = "  TH v2 — Done! Hit COPY"
+    bar.Text = "  TH v3 — Done! Hit COPY"
 end
 
 openBtn.MouseButton1Click:Connect(function() runScan() end)
