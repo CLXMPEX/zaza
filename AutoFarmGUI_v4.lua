@@ -2,35 +2,50 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
-local app = pg:WaitForChild("app")
-local panel = app:WaitForChild("Frame"):WaitForChild("Frame"):WaitForChild("Frame")
+local wanted = "let's dig for treasure"
+local found
 
-local function openTreasure()
-	local cur = panel
-
-	while cur and cur ~= pg do
-		if cur:IsA("ScreenGui") then
-			cur.Enabled = true
-		elseif cur:IsA("GuiObject") then
-			cur.Visible = true
-			cur.Active = true
-			cur.ZIndex = math.max(cur.ZIndex, 900)
+for _, obj in ipairs(pg:GetDescendants()) do
+	if obj:IsA("TextButton") or obj:IsA("TextLabel") then
+		local text = string.lower(obj.Text or "")
+		if text:find(wanted, 1, true) or text:find("dig for treasure", 1, true) then
+			found = obj
+			break
 		end
-
-		cur = cur.Parent
-	end
-
-	for _, obj in ipairs(panel:GetDescendants()) do
-		if obj:IsA("GuiObject") then
-			obj.Visible = true
-			obj.ZIndex = math.max(obj.ZIndex, 900)
-		end
-	end
-
-	local dialogue = pg:FindFirstChild("dialogue")
-	if dialogue then
-		dialogue.Enabled = false
 	end
 end
 
-openTreasure()
+if not found then
+	warn("Could not find the treasure dialogue option. Open the NPC dialogue first.")
+	return
+end
+
+print("Found option text:", found:GetFullName())
+
+local button = found
+while button and not button:IsA("TextButton") and button ~= pg do
+	button = button.Parent
+end
+
+if not button or not button:IsA("TextButton") then
+	warn("Found the text, but could not find a parent TextButton.")
+	return
+end
+
+print("Trying button:", button:GetFullName())
+
+pcall(function()
+	button:Activate()
+end)
+
+pcall(function()
+	for _, conn in ipairs(getconnections(button.MouseButton1Click)) do
+		conn:Fire()
+	end
+end)
+
+pcall(function()
+	for _, conn in ipairs(getconnections(button.Activated)) do
+		conn:Fire()
+	end
+end)
