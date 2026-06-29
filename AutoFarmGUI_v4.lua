@@ -3,16 +3,16 @@ local UIS = game:GetService("UserInputService")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui")
 
-local old = pg:FindFirstChild("TreasureOpenDebug")
+local old = pg:FindFirstChild("TreasureAppDebug")
 if old then old:Destroy() end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "TreasureOpenDebug"
+gui.Name = "TreasureAppDebug"
 gui.ResetOnSpawn = false
 gui.Parent = pg
 
 local win = Instance.new("Frame")
-win.Size = UDim2.fromOffset(300, 210)
+win.Size = UDim2.fromOffset(310, 220)
 win.Position = UDim2.fromOffset(60, 120)
 win.BackgroundColor3 = Color3.fromRGB(24, 27, 34)
 win.BorderSizePixel = 0
@@ -22,7 +22,7 @@ win.Parent = gui
 local top = Instance.new("TextButton")
 top.Size = UDim2.new(1, 0, 0, 28)
 top.BackgroundColor3 = Color3.fromRGB(40, 46, 58)
-top.Text = "Treasure Debug"
+top.Text = "App Treasure Debug"
 top.TextColor3 = Color3.new(1,1,1)
 top.TextSize = 13
 top.Parent = win
@@ -38,14 +38,14 @@ close.Parent = win
 local findBtn = Instance.new("TextButton")
 findBtn.Size = UDim2.fromOffset(88, 26)
 findBtn.Position = UDim2.fromOffset(8, 36)
-findBtn.Text = "Find"
+findBtn.Text = "Find App"
 findBtn.TextSize = 12
 findBtn.Parent = win
 
 local openBtn = Instance.new("TextButton")
 openBtn.Size = UDim2.fromOffset(88, 26)
 openBtn.Position = UDim2.fromOffset(104, 36)
-openBtn.Text = "Open Best"
+openBtn.Text = "Open App"
 openBtn.TextSize = 12
 openBtn.Parent = win
 
@@ -67,7 +67,7 @@ out.TextXAlignment = Enum.TextXAlignment.Left
 out.TextYAlignment = Enum.TextYAlignment.Top
 out.Font = Enum.Font.Code
 out.TextSize = 10
-out.Text = "Click Find."
+out.Text = "Click Find App."
 out.Parent = win
 
 local dragging = false
@@ -91,124 +91,135 @@ end)
 UIS.InputChanged:Connect(function(input)
 	if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
 		local d = input.Position - dragStart
-		win.Position = UDim2.new(
-			startPos.X.Scale,
-			startPos.X.Offset + d.X,
-			startPos.Y.Scale,
-			startPos.Y.Offset + d.Y
-		)
+		win.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
 	end
 end)
 
 local candidates = {}
 
-local function scoreGuiObject(obj)
-	local score = 0
+local function isIgnored(obj)
+	local full = string.lower(obj:GetFullName())
+	return full:find("dialogue", 1, true)
+		or full:find("markers", 1, true)
+		or full:find("treasureappdebug", 1, true)
+		or full:find("treasureopendebug", 1, true)
+		or full:find("treasureminifinder", 1, true)
+end
+
+local function getOpenAncestor(obj)
+	local cur = obj
+	local best = obj
+
+	while cur and cur ~= pg do
+		if cur:IsA("GuiObject") then
+			best = cur
+		end
+
+		if cur:IsA("Frame") or cur:IsA("CanvasGroup") or cur:IsA("ScrollingFrame") then
+			if cur.AbsoluteSize.X > 250 and cur.AbsoluteSize.Y > 140 then
+				return cur
+			end
+		end
+
+		cur = cur.Parent
+	end
+
+	return best
+end
+
+local function score(obj)
+	local s = 0
 	local name = string.lower(obj.Name or "")
 
-	if name:find("treasure", 1, true) then score += 20 end
-	if name:find("hunt", 1, true) then score += 12 end
-	if name:find("dig", 1, true) then score += 8 end
-	if name:find("tier", 1, true) then score += 4 end
+	if name:find("treasure", 1, true) then s += 30 end
+	if name:find("hunt", 1, true) then s += 20 end
+	if name:find("dig", 1, true) then s += 12 end
+	if name:find("tier", 1, true) then s += 6 end
+	if name:find("found", 1, true) then s += 6 end
 
 	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
 		local text = string.lower(obj.Text or "")
-		if text:find("treasure", 1, true) then score += 25 end
-		if text:find("hunt", 1, true) then score += 15 end
-		if text:find("dig", 1, true) then score += 10 end
-		if text:find("tier", 1, true) then score += 4 end
-		if text:find("found", 1, true) then score += 4 end
+		if text:find("treasure", 1, true) then s += 35 end
+		if text:find("hunt", 1, true) then s += 24 end
+		if text:find("dig", 1, true) then s += 12 end
+		if text:find("tier", 1, true) then s += 6 end
+		if text:find("found", 1, true) then s += 6 end
 	end
 
-	return score
+	return s
 end
 
-local function getBigAncestor(obj)
-	local current = obj
-
-	while current and current ~= pg do
-		if current:IsA("Frame") or current:IsA("CanvasGroup") or current:IsA("ScrollingFrame") then
-			if current.AbsoluteSize.X > 200 and current.AbsoluteSize.Y > 120 then
-				return current
-			end
-		end
-		current = current.Parent
-	end
-
-	return obj
-end
-
-local function findCandidates()
+local function findApp()
 	candidates = {}
 
-	for _, obj in ipairs(pg:GetDescendants()) do
-		if not obj:IsDescendantOf(gui) then
-			local score = scoreGuiObject(obj)
-			if score > 0 then
-				local open = getBigAncestor(obj)
+	local app = pg:FindFirstChild("app")
+	if not app then
+		out.Text = "No PlayerGui.app found."
+		return
+	end
+
+	for _, obj in ipairs(app:GetDescendants()) do
+		if not isIgnored(obj) then
+			local s = score(obj)
+			if s > 0 then
+				local open = getOpenAncestor(obj)
 				table.insert(candidates, {
-					score = score,
-					hit = obj,
+					score = s,
+					hit = obj:GetFullName(),
 					open = open,
-					hitPath = obj:GetFullName(),
 					openPath = open:GetFullName(),
 				})
 			end
 		end
 	end
 
-	table.sort(candidates, function(a,b)
-		return a.score > b.score
-	end)
+	table.sort(candidates, function(a,b) return a.score > b.score end)
 
-	local lines = {"Candidates:", ""}
+	local lines = {"App candidates:", ""}
 
 	for i, c in ipairs(candidates) do
-		if i > 15 then break end
+		if i > 20 then break end
 		table.insert(lines, ("[%d] score %d"):format(i, c.score))
-		table.insert(lines, "hit: " .. c.hitPath)
+		table.insert(lines, "hit: " .. c.hit)
 		table.insert(lines, "open: " .. c.openPath)
 		table.insert(lines, "")
 	end
 
-	out.Text = #candidates > 0 and table.concat(lines, "\n") or "No candidates found."
+	out.Text = #candidates > 0 and table.concat(lines, "\n") or "No app candidates."
 end
 
-local function openBest()
+local function openApp()
 	if #candidates == 0 then
-		findCandidates()
+		findApp()
 	end
 
 	local best = candidates[1]
-	if not best then
-		out.Text = "No best candidate."
-		return
-	end
+	if not best then return end
 
-	local current = best.open
-	while current and current ~= pg do
-		if current:IsA("ScreenGui") then
-			current.Enabled = true
-		elseif current:IsA("GuiObject") then
-			current.Visible = true
-			current.Active = true
-			current.ZIndex = math.max(current.ZIndex, 900)
+	local cur = best.open
+	while cur and cur ~= pg do
+		if cur:IsA("ScreenGui") then
+			cur.Enabled = true
+		elseif cur:IsA("GuiObject") then
+			cur.Visible = true
+			cur.Active = true
+			cur.ZIndex = math.max(cur.ZIndex, 950)
 		end
-		current = current.Parent
+		cur = cur.Parent
 	end
 
 	for _, obj in ipairs(best.open:GetDescendants()) do
 		if obj:IsA("GuiObject") then
 			obj.Visible = true
-			obj.ZIndex = math.max(obj.ZIndex, 900)
+			obj.ZIndex = math.max(obj.ZIndex, 950)
 		end
 	end
 
-	out.Text = "Tried opening:\n" .. best.openPath .. "\n\nIf nothing opened, click Copy and paste this whole box here."
+	out.Text = "Tried opening app candidate:\n" .. best.openPath .. "\n\nIf nothing opened, Copy this and paste here."
 end
 
-findBtn.MouseButton1Click:Connect(findCandidates)
-openBtn.MouseButton1Click:Connect(openBest)
+findBtn.MouseButton1Click:Connect(findApp)
+openBtn.MouseButton1Click:Connect(openApp)
 
 copyBtn.MouseButton1Click:Connect(function()
 	out:CaptureFocus()
