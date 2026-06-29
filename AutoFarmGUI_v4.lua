@@ -1,4 +1,4 @@
--- === TH Auto Digger (Fixed) ===
+-- === TH Auto Digger v2 (Fixed) ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -114,13 +114,12 @@ local function safeStr(v, depth)
     return typeof(v) .. ":" .. tostring(v)
 end
 
--- === AUTO RUN ===
 task.spawn(function()
-    log("=== AUTO DIGGER ===\n")
+    log("=== AUTO DIGGER v2 ===\n")
 
     local RS = game:GetService("ReplicatedStorage")
 
-    -- The remote name has a DOT in it: "treasureHunt.dig"
+    -- Find remote (name has dot in it)
     log("[1] Finding remote...")
     local digRemote
     for _, desc in pairs(RS:GetDescendants()) do
@@ -134,7 +133,7 @@ task.spawn(function()
         log("  FAILED")
         return
     end
-    log("  Found: " .. digRemote.ClassName)
+    log("  Found!")
 
     -- Load player data
     log("\n[2] Loading data...")
@@ -178,110 +177,81 @@ task.spawn(function()
     local dugCount = 0
     for _ in pairs(dugTiles) do dugCount = dugCount + 1 end
 
+    -- Build undug list (1-indexed, 1 to 49)
+    local undug = {}
+    for i = 1, 49 do
+        if not dugTiles[i] then
+            table.insert(undug, i)
+        end
+    end
+
     log("  Tier: " .. currentTier)
     log("  Shovels: " .. shovels)
     log("  Dug: " .. dugCount .. "/49")
+    log("  Undug: " .. #undug .. " tiles")
 
     if shovels <= 0 then
         log("\n  NO SHOVELS!")
         return
     end
 
-    -- Build list of undug tiles
-    local undug = {}
-    for i = 0, 48 do
-        if not dugTiles[i] then
-            table.insert(undug, i)
-        end
-    end
-    log("  Undug tiles: " .. #undug)
-
-    -- Test which argument format works
-    log("\n[3] Testing formats...")
-    local workingFormat = nil
-    local firstTile = undug[1]
-
-    local tests = {
-        {"index", function(t) return digRemote:InvokeServer(t) end},
-        {"{index}", function(t) return digRemote:InvokeServer({index = t}) end},
-        {"{tile}", function(t) return digRemote:InvokeServer({tile = t}) end},
-        {"tier,index", function(t) return digRemote:InvokeServer(currentTier, t) end},
-        {"no args", function(t) return digRemote:InvokeServer() end},
-    }
-
-    for _, test in pairs(tests) do
-        log("  " .. test[1] .. "(" .. firstTile .. ")...")
-        local ok, result = pcall(function() return test[2](firstTile) end)
-        log("    -> " .. (ok and safeStr(result) or "ERR: " .. tostring(result):sub(1, 60)))
-
-        if ok and result ~= nil and result ~= false then
-            workingFormat = test
-            log("    WORKS!")
-            table.remove(undug, 1)
-            shovels = shovels - 1
-            break
-        end
-        task.wait(0.3)
-    end
-
-    if not workingFormat then
-        -- Also try 1-indexed
-        log("\n  Trying 1-indexed...")
-        local undug1 = {}
-        for i = 1, 49 do
-            if not dugTiles[i] then
-                table.insert(undug1, i)
-            end
-        end
-
-        local tile1 = undug1[1]
-        for _, test in pairs(tests) do
-            log("  " .. test[1] .. "(" .. tile1 .. ")...")
-            local ok, result = pcall(function() return test[2](tile1) end)
-            log("    -> " .. (ok and safeStr(result) or "ERR: " .. tostring(result):sub(1, 60)))
-
-            if ok and result ~= nil and result ~= false then
-                workingFormat = test
-                undug = undug1
-                table.remove(undug, 1)
-                shovels = shovels - 1
-                log("    WORKS (1-indexed)!")
-                break
-            end
-            task.wait(0.3)
-        end
-    end
-
-    if not workingFormat then
-        log("\n  No format worked!")
-        return
-    end
-
-    -- Dig all remaining
-    log("\n[4] Digging all tiles...")
-    local totalDug = 1
+    -- Dig all undug tiles
+    log("\n[3] Digging...\n")
+    local totalDug = 0
+    local shovelsLeft = shovels
 
     for _, tileIdx in ipairs(undug) do
-        if shovels <= 0 then
-            log("  Out of shovels!")
+        if shovelsLeft <= 0 then
+            log("\n  Out of shovels!")
             break
         end
 
-        task.wait(0.3)
         local ok, result = pcall(function()
-            return workingFormat[2](tileIdx)
+            return digRemote:InvokeServer(tileIdx)
         end)
 
-        if ok then
-            totalDug = totalDug + 1
-            shovels = shovels - 1
-            log("  Tile " .. tileIdx .. ": " .. safeStr(result))
-        else
+        if ok and typeof(result) == "table" then
+            -- Check if server rejected it
+            if result.reason then
+                log("  Tile " .. tileIdx .. ": SKIP (" .. tostring(result.reason) .. ")")
+            elseif result.revealed then
+                -- Successful dig
+                totalDug = totalDug + 1
+
+                -- Get reward info from response
+                local rewardStr = ""
+                if result.revealed then
+                    for _, rev in pairs(result.revealed) do
+                        if rev.reward then
+                            rewardStr = tostring(rev.reward.id or "") .. " x" .. tostring(rev.reward.amount or "")
+                        end
+                    end
+                end
+
+                -- Use server's shovel count
+                if result.shovels then
+                    shovelsLeft = result.shovels
+                else
+                    shovelsLeft = shovelsLeft - 1
+                end
+
+                local tierStr = ""
+                if result.tierComplete then
+                    tierStr = " [TIER COMPLETE!]"
+                end
+
+                log("  Tile " .. tileIdx .. ": " .. rewardStr .. " (shovels: " .. shovelsLeft .. ")" .. tierStr)
+            else
+                log("  Tile " .. tileIdx .. ": " .. safeStr(result))
+            end
+        elseif not ok then
             log("  Tile " .. tileIdx .. " ERR: " .. tostring(result):sub(1, 50))
         end
+
+        task.wait(0.3)
     end
 
     log("\n=== DONE ===")
     log("Dug: " .. totalDug .. " tiles")
-    log("Shovels left: " .. shovels)
+    log("Shovels left: " .. shovelsLeft)
 end)
