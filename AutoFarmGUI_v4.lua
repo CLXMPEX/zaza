@@ -1,4 +1,4 @@
--- === TH Auto-Digger ===
+-- === TH Full Auto Digger ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -28,7 +28,7 @@ local bar = Instance.new("TextLabel")
 bar.Size = UDim2.new(1, 0, 0, 28)
 bar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 bar.BorderSizePixel = 0
-bar.Text = "  TH Digger — Ready"
+bar.Text = "  Auto Digger — Starting..."
 bar.TextColor3 = Color3.fromRGB(255, 255, 255)
 bar.TextSize = 12
 bar.Font = Enum.Font.GothamBold
@@ -64,7 +64,7 @@ btnLayout.Parent = btnBar
 
 local function makeBtn(name, color)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, 85, 0, 28)
+    b.Size = UDim2.new(0, 135, 0, 28)
     b.BackgroundColor3 = color
     b.Text = name
     b.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -79,7 +79,6 @@ end
 
 local copyBtn = makeBtn("COPY", Color3.fromRGB(80, 160, 50))
 local clearBtn = makeBtn("CLEAR", Color3.fromRGB(180, 50, 50))
-local digBtn = makeBtn("DIG!", Color3.fromRGB(200, 120, 0))
 
 local scroll = Instance.new("ScrollingFrame")
 scroll.Size = UDim2.new(1, -12, 1, -72)
@@ -117,8 +116,8 @@ end
 copyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(logText)
-        bar.Text = "  TH Digger — Copied!"
-        task.delay(2, function() if bar then bar.Text = "  TH Digger — Ready" end end)
+        bar.Text = "  Auto Digger — Copied!"
+        task.delay(2, function() if bar then bar.Text = "  Auto Digger — Done" end end)
     end
 end)
 
@@ -138,7 +137,7 @@ local function safeStr(v, depth)
         local count = 0
         for k2, v2 in pairs(v) do
             count = count + 1
-            if count > 20 then table.insert(parts, "...") break end
+            if count > 15 then table.insert(parts, "...") break end
             table.insert(parts, tostring(k2) .. "=" .. safeStr(v2, depth + 1))
         end
         return "{" .. table.concat(parts, ", ") .. "}"
@@ -146,166 +145,230 @@ local function safeStr(v, depth)
     return typeof(v) .. ":" .. tostring(v)
 end
 
--- Load modules
-local thContent, atoms, digRemote
+-- ====== AUTO RUN ======
+task.spawn(function()
+    log("=== TREASURE HUNT AUTO DIGGER ===\n")
 
-for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-    if desc:IsA("ModuleScript") and desc.Name == "treasure-hunt" and desc:GetFullName():find("content") then
-        pcall(function() thContent = require(desc) end)
-    end
-    if desc:IsA("ModuleScript") and desc.Name == "atoms" and desc:GetFullName():find("common.store.atoms") then
-        pcall(function() atoms = require(desc) end)
-    end
-    if desc:IsA("RemoteFunction") and desc.Name == "dig" and desc:GetFullName():find("treasureHunt") then
-        digRemote = desc
-    end
-end
+    -- 1) Find dig remote by walking the path directly
+    log("[1] Finding dig remote...")
+    local digRemote
+    local RS = game:GetService("ReplicatedStorage")
 
--- Initial info dump
-local function showInfo()
-    logText = ""
-    output.Text = ""
+    -- Walk the known path
+    local path = RS
+        :FindFirstChild("rbxts_include")
+    if path then path = path:FindFirstChild("node_modules") end
+    if path then path = path:FindFirstChild("@rbxts") end
+    if path then path = path:FindFirstChild("remo") end
+    if path then path = path:FindFirstChild("src") end
+    if path then path = path:FindFirstChild("container") end
+    if path then path = path:FindFirstChild("treasureHunt") end
+    if path then digRemote = path:FindFirstChild("dig") end
 
-    log("====== TREASURE HUNT INFO ======")
-
-    if thContent then
-        log("Grid size: " .. tostring(thContent.TREASURE_HUNT_GRID))
-        log("Tile count: " .. tostring(thContent.TREASURE_HUNT_TILE_COUNT))
-        log("Shovel ID: " .. tostring(thContent.TREASURE_HUNT_SHOVEL_ID))
-        log("Tiers: " .. safeStr(thContent.TREASURE_HUNT_TIERS))
-    else
-        log("ERROR: treasure-hunt content not loaded")
-    end
-
-    if digRemote then
-        log("\nDig remote: " .. digRemote:GetFullName())
-    else
-        log("\nERROR: dig remote not found!")
-    end
-
-    -- Get player datastore for revealed tiles
-    log("\n====== YOUR TREASURE HUNT STATE ======")
-    if atoms then
-        local atomTable = atoms.atoms or atoms
-        if atomTable.datastore and typeof(atomTable.datastore) == "function" then
-            local ok, ds = pcall(atomTable.datastore)
-            if ok and typeof(ds) == "table" then
-                local pdata = ds[tostring(player.UserId)] or ds[player.UserId]
-                if pdata then
-                    for k, v in pairs(pdata) do
-                        local kl = tostring(k):lower()
-                        if kl:find("treasure") or kl:find("hunt") or kl:find("dig") or kl:find("shovel") or kl:find("tile") then
-                            log("  " .. tostring(k) .. " = " .. safeStr(v))
-                        end
-                    end
-
-                    -- Check for shovels in inventory
-                    if thContent and thContent.TREASURE_HUNT_SHOVEL_ID then
-                        local items = pdata.items or pdata.inventory
-                        if items and typeof(items) == "table" then
-                            for id, item in pairs(items) do
-                                if tostring(id):find(thContent.TREASURE_HUNT_SHOVEL_ID) or (typeof(item) == "table" and tostring(item.id or ""):find("shovel")) then
-                                    log("  SHOVEL FOUND: " .. tostring(id) .. " = " .. safeStr(item))
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Try getRevealedTiles
-    if thContent and thContent.getRevealedTiles then
-        log("\n====== REVEALED TILES ======")
-        local ok, revealed = pcall(function()
-            -- It might need the player data
-            if atoms then
-                local atomTable = atoms.atoms or atoms
-                local ok2, ds = pcall(atomTable.datastore)
-                if ok2 then
-                    local pdata = ds[tostring(player.UserId)] or ds[player.UserId]
-                    if pdata then
-                        return thContent.getRevealedTiles(pdata)
-                    end
-                end
-            end
-            return thContent.getRevealedTiles()
-        end)
-        if ok then
-            log("Revealed: " .. safeStr(revealed))
-        else
-            log("Error: " .. tostring(revealed):sub(1, 80))
-        end
-    end
-
-    log("\n====== READY ======")
-    log("Press DIG! to dig one random undug tile")
-    bar.Text = "  TH Digger — Ready"
-end
-
--- Dig function
-local function doDig()
+    -- Fallback: brute search
     if not digRemote then
-        log("\nERROR: No dig remote!")
+        log("  Path walk failed, brute searching...")
+        for _, desc in pairs(RS:GetDescendants()) do
+            if (desc:IsA("RemoteFunction") or desc:IsA("RemoteEvent")) and desc:GetFullName():find("treasureHunt") and desc:GetFullName():find("dig") then
+                digRemote = desc
+                break
+            end
+        end
+    end
+
+    if not digRemote then
+        log("  ERROR: Could not find dig remote!")
+        log("  Dumping treasureHunt folder contents...")
+        local thFolder
+        for _, desc in pairs(RS:GetDescendants()) do
+            if desc.Name == "treasureHunt" then
+                thFolder = desc
+                break
+            end
+        end
+        if thFolder then
+            for _, child in pairs(thFolder:GetChildren()) do
+                log("    " .. child.Name .. " | " .. child.ClassName)
+            end
+        end
+        bar.Text = "  Auto Digger — FAILED"
         return
     end
 
-    bar.Text = "  TH Digger — Digging..."
+    log("  Found: " .. digRemote:GetFullName())
+    log("  Type: " .. digRemote.ClassName)
 
-    -- Try multiple argument formats
-    local grid = thContent and thContent.TREASURE_HUNT_GRID or 7
-    local totalTiles = grid * grid
-
-    log("\n====== ATTEMPTING DIG ======")
-
-    -- Try 1: just a tile index (0-based)
-    for tile = 0, totalTiles - 1 do
-        log("Trying tile index: " .. tile)
-        local ok, result = pcall(function()
-            return digRemote:InvokeServer(tile)
-        end)
-        if ok then
-            log("  Result: " .. safeStr(result))
-            if result ~= nil and result ~= false then
-                log("  SUCCESS! Tile " .. tile .. " dug!")
-                bar.Text = "  TH Digger — Dug tile " .. tile .. "!"
-                return
-            end
-        else
-            log("  Error: " .. tostring(result):sub(1, 60))
-            -- If first attempt errors, try other formats
-            if tile == 0 then
-                -- Try 1-based index
-                log("\nTrying 1-based index: 1")
-                local ok2, r2 = pcall(function() return digRemote:InvokeServer(1) end)
-                log("  Result: " .. (ok2 and safeStr(r2) or tostring(r2):sub(1, 60)))
-
-                -- Try row, column
-                log("Trying row,col: 1,1")
-                local ok3, r3 = pcall(function() return digRemote:InvokeServer(1, 1) end)
-                log("  Result: " .. (ok3 and safeStr(r3) or tostring(r3):sub(1, 60)))
-
-                -- Try row, column 0-based
-                log("Trying row,col: 0,0")
-                local ok4, r4 = pcall(function() return digRemote:InvokeServer(0, 0) end)
-                log("  Result: " .. (ok4 and safeStr(r4) or tostring(r4):sub(1, 60)))
-
-                -- Try table arg
-                log("Trying table: {tile=1}")
-                local ok5, r5 = pcall(function() return digRemote:InvokeServer({tile = 1}) end)
-                log("  Result: " .. (ok5 and safeStr(r5) or tostring(r5):sub(1, 60)))
-
-                log("Trying table: {row=1, column=1}")
-                local ok6, r6 = pcall(function() return digRemote:InvokeServer({row = 1, column = 1}) end)
-                log("  Result: " .. (ok6 and safeStr(r6) or tostring(r6):sub(1, 60)))
-            end
+    -- 2) Load atoms for player data
+    log("\n[2] Loading player data...")
+    local atoms
+    for _, desc in pairs(RS:GetDescendants()) do
+        if desc:IsA("ModuleScript") and desc.Name == "atoms" and desc:GetFullName():find("common.store.atoms") then
+            pcall(function() atoms = require(desc) end)
             break
         end
     end
 
-    bar.Text = "  TH Digger — Done! Hit COPY"
-end
+    local function getPlayerData()
+        if not atoms then return nil end
+        local atomTable = atoms.atoms or atoms
+        if not atomTable.datastore then return nil end
+        local ok, ds = pcall(atomTable.datastore)
+        if not ok then return nil end
+        return ds[tostring(player.UserId)] or ds[player.UserId]
+    end
 
-digBtn.MouseButton1Click:Connect(function() doDig() end)
-showInfo()
+    local pdata = getPlayerData()
+    if not pdata then
+        log("  ERROR: Could not load player data")
+        bar.Text = "  Auto Digger — FAILED"
+        return
+    end
+
+    -- 3) Get treasure hunt state
+    local thData = pdata.treasureHunt
+    if not thData then
+        log("  No treasure hunt data found")
+        bar.Text = "  Auto Digger — No TH data"
+        return
+    end
+
+    local shovels = 0
+    if pdata.items and pdata.items.Shovel then
+        shovels = pdata.items.Shovel.amount or 0
+    end
+
+    local dugTiles = {}
+    if thData.dug then
+        for _, tile in pairs(thData.dug) do
+            if tile.index then
+                dugTiles[tile.index] = true
+            end
+        end
+    end
+
+    local dugCount = 0
+    for _ in pairs(dugTiles) do dugCount = dugCount + 1 end
+
+    log("  Tier: " .. tostring(thData.currentTier))
+    log("  Shovels: " .. shovels)
+    log("  Already dug: " .. dugCount .. " tiles")
+    log("  Dug indices: " .. safeStr(dugTiles))
+
+    if shovels <= 0 then
+        log("\n  NO SHOVELS! Can't dig.")
+        bar.Text = "  Auto Digger — No shovels"
+        return
+    end
+
+    -- 4) Find undug tiles
+    local undug = {}
+    for i = 0, 48 do -- 7x7 = 49 tiles, 0-indexed
+        if not dugTiles[i] then
+            table.insert(undug, i)
+        end
+    end
+
+    -- Also try 1-indexed
+    local undug1 = {}
+    for i = 1, 49 do
+        if not dugTiles[i] then
+            table.insert(undug1, i)
+        end
+    end
+
+    log("  Undug (0-idx): " .. #undug .. " tiles")
+    log("  Undug (1-idx): " .. #undug1 .. " tiles")
+
+    -- 5) Start digging
+    log("\n[3] Starting auto-dig...\n")
+
+    local digsLeft = shovels
+    local totalDug = 0
+
+    -- Figure out the right argument format by testing
+    log("Testing argument format...")
+
+    -- Try tile index 0-based first
+    local testTile = undug[1]
+    local ok1, r1 = pcall(function() return digRemote:InvokeServer(testTile) end)
+    log("  InvokeServer(" .. testTile .. "): " .. (ok1 and safeStr(r1) or "ERR: " .. tostring(r1):sub(1, 60)))
+
+    if ok1 and r1 ~= nil and r1 ~= false then
+        log("  Format: single index (0-based) WORKS!")
+        totalDug = totalDug + 1
+        digsLeft = digsLeft - 1
+        table.remove(undug, 1)
+
+        -- Dig remaining
+        for i, tile in ipairs(undug) do
+            if digsLeft <= 0 then break end
+            bar.Text = "  Digging tile " .. tile .. " (" .. digsLeft .. " left)"
+            task.wait(0.3)
+
+            local ok, result = pcall(function() return digRemote:InvokeServer(tile) end)
+            if ok then
+                log("  Tile " .. tile .. ": " .. safeStr(result))
+                totalDug = totalDug + 1
+                digsLeft = digsLeft - 1
+            else
+                log("  Tile " .. tile .. " ERROR: " .. tostring(result):sub(1, 50))
+                break
+            end
+        end
+    else
+        -- Try 1-based
+        testTile = undug1[1]
+        local ok2, r2 = pcall(function() return digRemote:InvokeServer(testTile) end)
+        log("  InvokeServer(" .. testTile .. "): " .. (ok2 and safeStr(r2) or "ERR: " .. tostring(r2):sub(1, 60)))
+
+        if ok2 and r2 ~= nil and r2 ~= false then
+            log("  Format: single index (1-based) WORKS!")
+            totalDug = totalDug + 1
+            digsLeft = digsLeft - 1
+            table.remove(undug1, 1)
+
+            for i, tile in ipairs(undug1) do
+                if digsLeft <= 0 then break end
+                bar.Text = "  Digging tile " .. tile .. " (" .. digsLeft .. " left)"
+                task.wait(0.3)
+
+                local ok, result = pcall(function() return digRemote:InvokeServer(tile) end)
+                if ok then
+                    log("  Tile " .. tile .. ": " .. safeStr(result))
+                    totalDug = totalDug + 1
+                    digsLeft = digsLeft - 1
+                else
+                    log("  Tile " .. tile .. " ERROR: " .. tostring(result):sub(1, 50))
+                    break
+                end
+            end
+        else
+            -- Try other formats
+            log("\n  Trying other formats...")
+            local formats = {
+                {"row,col 0-based", function() return digRemote:InvokeServer(0, 0) end},
+                {"row,col 1-based", function() return digRemote:InvokeServer(1, 1) end},
+                {"{tile=0}", function() return digRemote:InvokeServer({tile = 0}) end},
+                {"{index=0}", function() return digRemote:InvokeServer({index = 0}) end},
+                {"{row=0,col=0}", function() return digRemote:InvokeServer({row = 0, column = 0}) end},
+                {"no args", function() return digRemote:InvokeServer() end},
+                {"tier + tile", function() return digRemote:InvokeServer(thData.currentTier, 0) end},
+            }
+
+            for _, fmt in pairs(formats) do
+                local ok, result = pcall(fmt[2])
+                log("  " .. fmt[1] .. ": " .. (ok and safeStr(result) or "ERR: " .. tostring(result):sub(1, 50)))
+                if ok and result ~= nil and result ~= false then
+                    log("  THIS FORMAT WORKS! ^^")
+                    break
+                end
+                task.wait(0.2)
+            end
+        end
+    end
+
+    log("\n=== DONE ===")
+    log("Total dug this session: " .. totalDug)
+    log("Shovels remaining: " .. digsLeft)
+    bar.Text = "  Auto Digger — Done! " .. totalDug .. " dug"
+end)
