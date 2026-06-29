@@ -1,4 +1,4 @@
--- === Auto-Scan Treasure Hunt Explorer v2 ===
+-- === Auto-Scan Treasure Hunt Explorer v3 ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -7,28 +7,30 @@ if pgui:FindFirstChild("TH_Explorer") then
     pgui.TH_Explorer:Destroy()
 end
 
--- GUI setup
 local sg = Instance.new("ScreenGui")
 sg.Name = "TH_Explorer"
 sg.ResetOnSpawn = false
+sg.DisplayOrder = 999
 sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 sg.Parent = pgui
 
 local win = Instance.new("Frame")
-win.Size = UDim2.new(0, 440, 0, 520)
-win.Position = UDim2.new(0.5, -220, 0.5, -260)
+win.Size = UDim2.new(0, 440, 0, 540)
+win.Position = UDim2.new(0.5, -220, 0.5, -270)
 win.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 win.BorderSizePixel = 0
 win.Active = true
 win.Draggable = true
+win.ClipsDescendants = true
 win.Parent = sg
 Instance.new("UICorner", win).CornerRadius = UDim.new(0, 8)
 
+-- Title bar
 local bar = Instance.new("TextLabel")
 bar.Size = UDim2.new(1, 0, 0, 36)
 bar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 bar.BorderSizePixel = 0
-bar.Text = "  TH Explorer v2 — Scanning..."
+bar.Text = "  TH Explorer v3 — Scanning..."
 bar.TextColor3 = Color3.fromRGB(255, 255, 255)
 bar.TextSize = 15
 bar.Font = Enum.Font.GothamBold
@@ -47,10 +49,46 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.Parent = bar
 closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
 
+-- Button bar at the bottom with solid dark background
+local btnBar = Instance.new("Frame")
+btnBar.Size = UDim2.new(1, 0, 0, 56)
+btnBar.Position = UDim2.new(0, 0, 1, -56)
+btnBar.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+btnBar.BorderSizePixel = 0
+btnBar.ZIndex = 5
+btnBar.Parent = win
+
+local btnLayout = Instance.new("UIListLayout")
+btnLayout.FillDirection = Enum.FillDirection.Horizontal
+btnLayout.Padding = UDim.new(0, 8)
+btnLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+btnLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+btnLayout.Parent = btnBar
+
+local function makeBtn(name, color)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(0, 125, 0, 38)
+    b.BackgroundColor3 = color
+    b.Text = name
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.TextSize = 15
+    b.Font = Enum.Font.GothamBold
+    b.BorderSizePixel = 0
+    b.ZIndex = 6
+    b.Parent = btnBar
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+local copyBtn = makeBtn("COPY", Color3.fromRGB(80, 160, 50))
+local clearBtn = makeBtn("CLEAR", Color3.fromRGB(180, 50, 50))
+local rescanBtn = makeBtn("RE-SCAN", Color3.fromRGB(0, 120, 215))
+
+-- Scroll area between title and buttons
 local scroll = Instance.new("ScrollingFrame")
-scroll.Size = UDim2.new(1, -16, 1, -95)
+scroll.Size = UDim2.new(1, -16, 1, -98)
 scroll.Position = UDim2.new(0, 8, 0, 40)
-scroll.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+scroll.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
 scroll.BorderSizePixel = 0
 scroll.ScrollBarThickness = 6
 scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
@@ -74,37 +112,6 @@ output.TextWrapped = true
 output.RichText = true
 output.Parent = scroll
 
--- Buttons
-local btnRow = Instance.new("Frame")
-btnRow.Size = UDim2.new(1, -16, 0, 40)
-btnRow.Position = UDim2.new(0, 8, 1, -48)
-btnRow.BackgroundTransparency = 1
-btnRow.Parent = win
-
-local layout = Instance.new("UIListLayout")
-layout.FillDirection = Enum.FillDirection.Horizontal
-layout.Padding = UDim.new(0, 8)
-layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-layout.Parent = btnRow
-
-local function makeBtn(name, color)
-    local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, 130, 0, 36)
-    b.BackgroundColor3 = color
-    b.Text = name
-    b.TextColor3 = Color3.fromRGB(255, 255, 255)
-    b.TextSize = 15
-    b.Font = Enum.Font.GothamBold
-    b.BorderSizePixel = 0
-    b.Parent = btnRow
-    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
-    return b
-end
-
-local copyBtn = makeBtn("COPY", Color3.fromRGB(80, 160, 50))
-local clearBtn = makeBtn("CLEAR", Color3.fromRGB(180, 50, 50))
-local rescanBtn = makeBtn("RE-SCAN", Color3.fromRGB(0, 120, 215))
-
 -- Log system
 local logText = ""
 local function log(msg)
@@ -115,12 +122,12 @@ end
 copyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(logText)
-        bar.Text = "  TH Explorer v2 — Copied!"
+        bar.Text = "  TH Explorer v3 — Copied!"
         task.delay(2, function()
-            if bar then bar.Text = "  TH Explorer v2 — Ready" end
+            if bar then bar.Text = "  TH Explorer v3 — Ready" end
         end)
     else
-        bar.Text = "  TH Explorer v2 — No clipboard access"
+        bar.Text = "  TH Explorer v3 — No clipboard"
     end
 end)
 
@@ -129,13 +136,12 @@ clearBtn.MouseButton1Click:Connect(function()
     output.Text = "Cleared."
 end)
 
--- === THE FULL SCAN ===
+-- === FULL SCAN ===
 local function runScan()
     logText = ""
     output.Text = ""
-    bar.Text = "  TH Explorer v2 — Scanning..."
+    bar.Text = "  TH Explorer v3 — Scanning..."
 
-    -- 1) All ScreenGuis
     log("====== SCREENGUI LIST ======")
     for _, s in pairs(pgui:GetChildren()) do
         if s:IsA("ScreenGui") then
@@ -143,7 +149,6 @@ local function runScan()
         end
     end
 
-    -- 2) Keyword search across entire PlayerGui
     log("\n====== KEYWORD SEARCH (Full PlayerGui) ======")
     local keywords = {"treasure", "dig", "hunt", "shovel", "goddess", "board", "water", "tile", "grid", "npc"}
     for _, desc in pairs(pgui:GetDescendants()) do
@@ -159,7 +164,6 @@ local function runScan()
         end
     end
 
-    -- 3) Deep scan app + popups + absolute for pages/panels/modals
     log("\n====== PAGE/PANEL/MODAL SYSTEM ======")
     for _, guiName in pairs({"app", "popups", "absolute", "top-layer"}) do
         local g = pgui:FindFirstChild(guiName)
@@ -178,7 +182,6 @@ local function runScan()
         end
     end
 
-    -- 4) Direct children of app (top-level frames = likely pages)
     log("\n====== APP TOP-LEVEL CHILDREN ======")
     local appGui = pgui:FindFirstChild("app")
     if appGui then
@@ -189,7 +192,6 @@ local function runScan()
         end
     end
 
-    -- 5) Direct children of popups
     log("\n====== POPUPS TOP-LEVEL CHILDREN ======")
     local popGui = pgui:FindFirstChild("popups")
     if popGui then
@@ -200,7 +202,6 @@ local function runScan()
         end
     end
 
-    -- 6) Keyword remotes
     log("\n====== KEYWORD REMOTES ======")
     local roots = {game:GetService("ReplicatedStorage"), workspace}
     for _, root in pairs(roots) do
@@ -217,7 +218,6 @@ local function runScan()
         end
     end
 
-    -- 7) All remotes
     log("\n====== ALL REMOTES ======")
     for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
         if desc:IsA("RemoteEvent") or desc:IsA("RemoteFunction") then
@@ -225,7 +225,6 @@ local function runScan()
         end
     end
 
-    -- 8) Module scripts with treasure/hunt
     log("\n====== MODULES (treasure/hunt/dig) ======")
     for _, root in pairs({game:GetService("ReplicatedStorage"), game:GetService("StarterPlayer")}) do
         for _, desc in pairs(root:GetDescendants()) do
@@ -238,7 +237,6 @@ local function runScan()
         end
     end
 
-    -- 9) Charm / state atoms
     log("\n====== CHARM / STATE ======")
     for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
         local n = desc.Name:lower()
@@ -248,10 +246,10 @@ local function runScan()
     end
 
     log("\n====== SCAN COMPLETE ======")
-    bar.Text = "  TH Explorer v2 — Done! Press COPY"
+    bar.Text = "  TH Explorer v3 — Done! Hit COPY"
 end
 
 rescanBtn.MouseButton1Click:Connect(function() runScan() end)
 
--- Auto-run on paste
+-- Auto-run
 runScan()
