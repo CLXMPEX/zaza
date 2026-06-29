@@ -1,4 +1,4 @@
--- === TH Data Check + Open v3 ===
+-- === TH Auto-Digger ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -28,7 +28,7 @@ local bar = Instance.new("TextLabel")
 bar.Size = UDim2.new(1, 0, 0, 28)
 bar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 bar.BorderSizePixel = 0
-bar.Text = "  TH v3 — Running..."
+bar.Text = "  TH Digger — Ready"
 bar.TextColor3 = Color3.fromRGB(255, 255, 255)
 bar.TextSize = 12
 bar.Font = Enum.Font.GothamBold
@@ -79,7 +79,7 @@ end
 
 local copyBtn = makeBtn("COPY", Color3.fromRGB(80, 160, 50))
 local clearBtn = makeBtn("CLEAR", Color3.fromRGB(180, 50, 50))
-local openBtn = makeBtn("OPEN TH", Color3.fromRGB(200, 120, 0))
+local digBtn = makeBtn("DIG!", Color3.fromRGB(200, 120, 0))
 
 local scroll = Instance.new("ScrollingFrame")
 scroll.Size = UDim2.new(1, -12, 1, -72)
@@ -117,8 +117,8 @@ end
 copyBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(logText)
-        bar.Text = "  TH v3 — Copied!"
-        task.delay(2, function() if bar then bar.Text = "  TH v3 — Ready" end end)
+        bar.Text = "  TH Digger — Copied!"
+        task.delay(2, function() if bar then bar.Text = "  TH Digger — Ready" end end)
     end
 end)
 
@@ -147,154 +147,66 @@ local function safeStr(v, depth)
 end
 
 -- Load modules
-local pages, pagesQueue, atoms, charm, dialogue
-
-for _, desc in pairs(game:GetService("StarterPlayer"):GetDescendants()) do
-    if desc:IsA("ModuleScript") then
-        local fp = desc:GetFullName()
-        if desc.Name == "pages" and fp:find("app.common.store.pages$") then
-            pcall(function() pages = require(desc) end)
-        elseif desc.Name == "pages-queue" then
-            pcall(function() pagesQueue = require(desc) end)
-        elseif desc.Name == "dialogue" and fp:find("store") then
-            pcall(function() dialogue = require(desc) end)
-        end
-    end
-end
+local thContent, atoms, digRemote
 
 for _, desc in pairs(game:GetService("ReplicatedStorage"):GetDescendants()) do
-    if desc:IsA("ModuleScript") then
-        if desc.Name == "atoms" and desc:GetFullName():find("common.store.atoms") then
-            pcall(function() atoms = require(desc) end)
-        elseif desc.Name == "charm" and not desc:GetFullName():find("sync") and not desc:GetFullName():find("payload") and not desc:GetFullName():find("vide") then
-            pcall(function() charm = require(desc) end)
-        end
+    if desc:IsA("ModuleScript") and desc.Name == "treasure-hunt" and desc:GetFullName():find("content") then
+        pcall(function() thContent = require(desc) end)
+    end
+    if desc:IsA("ModuleScript") and desc.Name == "atoms" and desc:GetFullName():find("common.store.atoms") then
+        pcall(function() atoms = require(desc) end)
+    end
+    if desc:IsA("RemoteFunction") and desc.Name == "dig" and desc:GetFullName():find("treasureHunt") then
+        digRemote = desc
     end
 end
 
-local function runScan()
+-- Initial info dump
+local function showInfo()
     logText = ""
     output.Text = ""
-    bar.Text = "  TH v3 — Scanning..."
 
-    -- 1) Check datastore for treasure hunt data
-    log("====== PLAYER DATASTORE ======")
-    if atoms and typeof(atoms) == "table" then
+    log("====== TREASURE HUNT INFO ======")
+
+    if thContent then
+        log("Grid size: " .. tostring(thContent.TREASURE_HUNT_GRID))
+        log("Tile count: " .. tostring(thContent.TREASURE_HUNT_TILE_COUNT))
+        log("Shovel ID: " .. tostring(thContent.TREASURE_HUNT_SHOVEL_ID))
+        log("Tiers: " .. safeStr(thContent.TREASURE_HUNT_TIERS))
+    else
+        log("ERROR: treasure-hunt content not loaded")
+    end
+
+    if digRemote then
+        log("\nDig remote: " .. digRemote:GetFullName())
+    else
+        log("\nERROR: dig remote not found!")
+    end
+
+    -- Get player datastore for revealed tiles
+    log("\n====== YOUR TREASURE HUNT STATE ======")
+    if atoms then
         local atomTable = atoms.atoms or atoms
         if atomTable.datastore and typeof(atomTable.datastore) == "function" then
             local ok, ds = pcall(atomTable.datastore)
             if ok and typeof(ds) == "table" then
-                local pid = tostring(player.UserId)
-                local pdata = ds[pid] or ds[tonumber(pid)]
+                local pdata = ds[tostring(player.UserId)] or ds[player.UserId]
                 if pdata then
-                    log("Player data found. Scanning for TH keys...")
                     for k, v in pairs(pdata) do
                         local kl = tostring(k):lower()
                         if kl:find("treasure") or kl:find("hunt") or kl:find("dig") or kl:find("shovel") or kl:find("tile") then
-                            log("  **" .. tostring(k) .. " = " .. safeStr(v) .. "**")
+                            log("  " .. tostring(k) .. " = " .. safeStr(v))
                         end
                     end
-                    -- Also dump ALL keys for reference
-                    log("\nAll datastore keys:")
-                    for k, v in pairs(pdata) do
-                        local vtype = typeof(v)
-                        if typeof(v) == "table" then
-                            local count = 0
-                            for _ in pairs(v) do count = count + 1 end
-                            vtype = "table(" .. count .. ")"
-                        end
-                        log("  " .. tostring(k) .. " = " .. vtype)
-                    end
-                else
-                    log("No player data for userId " .. pid)
-                    log("Available keys: " .. safeStr(ds))
-                end
-            end
-        end
-    end
 
-    -- 2) Check dialogue store
-    log("\n====== DIALOGUE STORE ======")
-    if dialogue and typeof(dialogue) == "table" then
-        for k, v in pairs(dialogue) do
-            local valStr = typeof(v)
-            if typeof(v) == "function" then
-                local ok2, val = pcall(v)
-                if ok2 then valStr = "fn() -> " .. safeStr(val) else valStr = "fn(err)" end
-            end
-            log("  " .. tostring(k) .. " = " .. valStr)
-        end
-    else
-        log("Not loaded")
-    end
-
-    -- 3) Try openPage with just the string and watch what happens
-    log("\n====== OPEN PAGE (string) + MONITOR ======")
-    if pages then
-        pcall(pages.closePage)
-        task.wait(0.2)
-
-        -- Watch the atom
-        log("Before: " .. safeStr(pcall(pages.pageStore) and select(2, pcall(pages.pageStore)) or "err"))
-
-        local ok, err = pcall(function()
-            pages.openPage("treasure-hunt")
-        end)
-        log("openPage('treasure-hunt'): " .. (ok and "OK" or tostring(err)))
-
-        task.wait(0.1)
-        local ok2, val = pcall(pages.pageStore)
-        log("After 0.1s: " .. (ok2 and safeStr(val) or "err"))
-
-        task.wait(0.5)
-        local ok3, val2 = pcall(pages.pageStore)
-        log("After 0.5s: " .. (ok3 and safeStr(val2) or "err"))
-    end
-
-    -- 4) Try queuePage
-    log("\n====== QUEUE PAGE ======")
-    if pagesQueue then
-        pcall(pages.closePage)
-        task.wait(0.2)
-
-        for _, id in pairs({"treasure-hunt", "treasureHunt"}) do
-            log("\nqueuePage('" .. id .. "')...")
-            local ok, err = pcall(function()
-                pagesQueue.queuePage(id)
-            end)
-            log("  Result: " .. (ok and "OK" or tostring(err):sub(1, 80)))
-            task.wait(0.3)
-
-            local ok2, val = pcall(pages.pageStore)
-            log("  Store: " .. (ok2 and safeStr(val) or "err"))
-
-            local ok3, q = pcall(pagesQueue.queuedPages)
-            log("  Queue: " .. (ok3 and safeStr(q) or "err"))
-        end
-    end
-
-    -- 5) Check GUI tree after page is "open"
-    log("\n====== GUI AFTER OPEN ======")
-    pcall(pages.closePage)
-    task.wait(0.1)
-    pcall(function() pages.openPage("treasure-hunt") end)
-    task.wait(0.5)
-
-    local appGui = pgui:FindFirstChild("app")
-    if appGui then
-        local idx = 0
-        for _, child in pairs(appGui:GetChildren()) do
-            if child:IsA("Frame") then
-                idx = idx + 1
-                if not child.Visible then continue end
-                local descs = #child:GetDescendants()
-                if descs > 5 then
-                    -- Check if any descendant text mentions treasure
-                    for _, d in pairs(child:GetDescendants()) do
-                        if d:IsA("TextLabel") or d:IsA("TextButton") then
-                            local txt = d.Text:lower()
-                            if txt:find("treasure") or txt:find("hunt") or txt:find("dig") or txt:find("tier") or txt:find("shovel") then
-                                log("Frame#" .. idx .. " has text: " .. d.Text:sub(1, 50))
+                    -- Check for shovels in inventory
+                    if thContent and thContent.TREASURE_HUNT_SHOVEL_ID then
+                        local items = pdata.items or pdata.inventory
+                        if items and typeof(items) == "table" then
+                            for id, item in pairs(items) do
+                                if tostring(id):find(thContent.TREASURE_HUNT_SHOVEL_ID) or (typeof(item) == "table" and tostring(item.id or ""):find("shovel")) then
+                                    log("  SHOVEL FOUND: " .. tostring(id) .. " = " .. safeStr(item))
+                                end
                             end
                         end
                     end
@@ -303,9 +215,97 @@ local function runScan()
         end
     end
 
-    log("\n====== DONE ======")
-    bar.Text = "  TH v3 — Done! Hit COPY"
+    -- Try getRevealedTiles
+    if thContent and thContent.getRevealedTiles then
+        log("\n====== REVEALED TILES ======")
+        local ok, revealed = pcall(function()
+            -- It might need the player data
+            if atoms then
+                local atomTable = atoms.atoms or atoms
+                local ok2, ds = pcall(atomTable.datastore)
+                if ok2 then
+                    local pdata = ds[tostring(player.UserId)] or ds[player.UserId]
+                    if pdata then
+                        return thContent.getRevealedTiles(pdata)
+                    end
+                end
+            end
+            return thContent.getRevealedTiles()
+        end)
+        if ok then
+            log("Revealed: " .. safeStr(revealed))
+        else
+            log("Error: " .. tostring(revealed):sub(1, 80))
+        end
+    end
+
+    log("\n====== READY ======")
+    log("Press DIG! to dig one random undug tile")
+    bar.Text = "  TH Digger — Ready"
 end
 
-openBtn.MouseButton1Click:Connect(function() runScan() end)
-runScan()
+-- Dig function
+local function doDig()
+    if not digRemote then
+        log("\nERROR: No dig remote!")
+        return
+    end
+
+    bar.Text = "  TH Digger — Digging..."
+
+    -- Try multiple argument formats
+    local grid = thContent and thContent.TREASURE_HUNT_GRID or 7
+    local totalTiles = grid * grid
+
+    log("\n====== ATTEMPTING DIG ======")
+
+    -- Try 1: just a tile index (0-based)
+    for tile = 0, totalTiles - 1 do
+        log("Trying tile index: " .. tile)
+        local ok, result = pcall(function()
+            return digRemote:InvokeServer(tile)
+        end)
+        if ok then
+            log("  Result: " .. safeStr(result))
+            if result ~= nil and result ~= false then
+                log("  SUCCESS! Tile " .. tile .. " dug!")
+                bar.Text = "  TH Digger — Dug tile " .. tile .. "!"
+                return
+            end
+        else
+            log("  Error: " .. tostring(result):sub(1, 60))
+            -- If first attempt errors, try other formats
+            if tile == 0 then
+                -- Try 1-based index
+                log("\nTrying 1-based index: 1")
+                local ok2, r2 = pcall(function() return digRemote:InvokeServer(1) end)
+                log("  Result: " .. (ok2 and safeStr(r2) or tostring(r2):sub(1, 60)))
+
+                -- Try row, column
+                log("Trying row,col: 1,1")
+                local ok3, r3 = pcall(function() return digRemote:InvokeServer(1, 1) end)
+                log("  Result: " .. (ok3 and safeStr(r3) or tostring(r3):sub(1, 60)))
+
+                -- Try row, column 0-based
+                log("Trying row,col: 0,0")
+                local ok4, r4 = pcall(function() return digRemote:InvokeServer(0, 0) end)
+                log("  Result: " .. (ok4 and safeStr(r4) or tostring(r4):sub(1, 60)))
+
+                -- Try table arg
+                log("Trying table: {tile=1}")
+                local ok5, r5 = pcall(function() return digRemote:InvokeServer({tile = 1}) end)
+                log("  Result: " .. (ok5 and safeStr(r5) or tostring(r5):sub(1, 60)))
+
+                log("Trying table: {row=1, column=1}")
+                local ok6, r6 = pcall(function() return digRemote:InvokeServer({row = 1, column = 1}) end)
+                log("  Result: " .. (ok6 and safeStr(r6) or tostring(r6):sub(1, 60)))
+            end
+            break
+        end
+    end
+
+    bar.Text = "  TH Digger — Done! Hit COPY"
+end
+
+digBtn.MouseButton1Click:Connect(function() doDig() end)
+showInfo()
