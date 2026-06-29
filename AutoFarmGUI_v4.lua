@@ -1,4 +1,4 @@
--- === TH Auto Digger v2 (Fixed) ===
+-- === TH Auto Digger v3 (Always On) ===
 
 local player = game.Players.LocalPlayer
 local pgui = player:WaitForChild("PlayerGui")
@@ -26,9 +26,23 @@ bigCopy.ZIndex = 100
 bigCopy.Parent = sg
 Instance.new("UICorner", bigCopy).CornerRadius = UDim.new(0, 10)
 
+local statusBtn = Instance.new("TextButton")
+statusBtn.Size = UDim2.new(0, 150, 0, 30)
+statusBtn.Position = UDim2.new(0.5, -75, 0, 58)
+statusBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+statusBtn.Text = "Starting..."
+statusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusBtn.TextSize = 12
+statusBtn.Font = Enum.Font.GothamBold
+statusBtn.BorderSizePixel = 0
+statusBtn.ZIndex = 100
+statusBtn.Active = false
+statusBtn.Parent = sg
+Instance.new("UICorner", statusBtn).CornerRadius = UDim.new(0, 8)
+
 local win = Instance.new("Frame")
-win.Size = UDim2.new(0, 280, 0, 250)
-win.Position = UDim2.new(0, 10, 0, 60)
+win.Size = UDim2.new(0, 280, 0, 220)
+win.Position = UDim2.new(0, 10, 0, 95)
 win.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
 win.BorderSizePixel = 0
 win.Active = true
@@ -78,6 +92,10 @@ output.Parent = scroll
 local logText = ""
 local function log(msg)
     logText = logText .. msg .. "\n"
+    -- Keep log from getting too huge
+    if #logText > 8000 then
+        logText = logText:sub(#logText - 6000)
+    end
     output.Text = logText
 end
 
@@ -115,11 +133,11 @@ local function safeStr(v, depth)
 end
 
 task.spawn(function()
-    log("=== AUTO DIGGER v2 ===\n")
+    log("=== AUTO DIGGER v3 (Always On) ===\n")
 
     local RS = game:GetService("ReplicatedStorage")
 
-    -- Find remote (name has dot in it)
+    -- Find remote
     log("[1] Finding remote...")
     local digRemote
     for _, desc in pairs(RS:GetDescendants()) do
@@ -130,13 +148,14 @@ task.spawn(function()
     end
 
     if not digRemote then
-        log("  FAILED")
+        log("  FAILED - no remote")
+        statusBtn.Text = "FAILED"
+        statusBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         return
     end
     log("  Found!")
 
-    -- Load player data
-    log("\n[2] Loading data...")
+    -- Load atoms once
     local atoms
     for _, desc in pairs(RS:GetDescendants()) do
         if desc:IsA("ModuleScript") and desc.Name == "atoms" and desc:GetFullName():find("common.store.atoms") then
@@ -145,113 +164,132 @@ task.spawn(function()
         end
     end
 
-    local dugTiles = {}
-    local shovels = 0
-    local currentTier = 0
-
-    if atoms then
-        local atomTable = atoms.atoms or atoms
-        if atomTable.datastore and typeof(atomTable.datastore) == "function" then
-            local ok, ds = pcall(atomTable.datastore)
-            if ok and typeof(ds) == "table" then
-                local pdata = ds[tostring(player.UserId)] or ds[player.UserId]
-                if pdata then
-                    if pdata.treasureHunt then
-                        currentTier = pdata.treasureHunt.currentTier or 0
-                        if pdata.treasureHunt.dug then
-                            for _, tile in pairs(pdata.treasureHunt.dug) do
-                                if tile.index then
-                                    dugTiles[tile.index] = true
-                                end
-                            end
-                        end
-                    end
-                    if pdata.items and pdata.items.Shovel then
-                        shovels = pdata.items.Shovel.amount or 0
-                    end
-                end
-            end
-        end
-    end
-
-    local dugCount = 0
-    for _ in pairs(dugTiles) do dugCount = dugCount + 1 end
-
-    -- Build undug list (1-indexed, 1 to 49)
-    local undug = {}
-    for i = 1, 49 do
-        if not dugTiles[i] then
-            table.insert(undug, i)
-        end
-    end
-
-    log("  Tier: " .. currentTier)
-    log("  Shovels: " .. shovels)
-    log("  Dug: " .. dugCount .. "/49")
-    log("  Undug: " .. #undug .. " tiles")
-
-    if shovels <= 0 then
-        log("\n  NO SHOVELS!")
+    if not atoms then
+        log("  FAILED - no atoms")
+        statusBtn.Text = "FAILED"
+        statusBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
         return
     end
 
-    -- Dig all undug tiles
-    log("\n[3] Digging...\n")
-    local totalDug = 0
-    local shovelsLeft = shovels
-
-    for _, tileIdx in ipairs(undug) do
-        if shovelsLeft <= 0 then
-            log("\n  Out of shovels!")
-            break
-        end
-
-        local ok, result = pcall(function()
-            return digRemote:InvokeServer(tileIdx)
-        end)
-
-        if ok and typeof(result) == "table" then
-            -- Check if server rejected it
-            if result.reason then
-                log("  Tile " .. tileIdx .. ": SKIP (" .. tostring(result.reason) .. ")")
-            elseif result.revealed then
-                -- Successful dig
-                totalDug = totalDug + 1
-
-                -- Get reward info from response
-                local rewardStr = ""
-                if result.revealed then
-                    for _, rev in pairs(result.revealed) do
-                        if rev.reward then
-                            rewardStr = tostring(rev.reward.id or "") .. " x" .. tostring(rev.reward.amount or "")
-                        end
-                    end
-                end
-
-                -- Use server's shovel count
-                if result.shovels then
-                    shovelsLeft = result.shovels
-                else
-                    shovelsLeft = shovelsLeft - 1
-                end
-
-                local tierStr = ""
-                if result.tierComplete then
-                    tierStr = " [TIER COMPLETE!]"
-                end
-
-                log("  Tile " .. tileIdx .. ": " .. rewardStr .. " (shovels: " .. shovelsLeft .. ")" .. tierStr)
-            else
-                log("  Tile " .. tileIdx .. ": " .. safeStr(result))
-            end
-        elseif not ok then
-            log("  Tile " .. tileIdx .. " ERR: " .. tostring(result):sub(1, 50))
-        end
-
-        task.wait(0.3)
+    local function getData()
+        local atomTable = atoms.atoms or atoms
+        if not atomTable.datastore or typeof(atomTable.datastore) ~= "function" then return nil end
+        local ok, ds = pcall(atomTable.datastore)
+        if not ok or typeof(ds) ~= "table" then return nil end
+        return ds[tostring(player.UserId)] or ds[player.UserId]
     end
 
-    log("\n=== DONE ===")
-    log("Dug: " .. totalDug .. " tiles")
-    log("Shovels left: " .. shovelsLeft)
+    local totalDugSession = 0
+
+    log("\n[2] Monitoring for shovels...\n")
+
+    -- Main loop - runs forever
+    while sg.Parent do
+        local pdata = getData()
+        if not pdata then
+            task.wait(3)
+            continue
+        end
+
+        -- Get current shovels
+        local shovels = 0
+        if pdata.items and pdata.items.Shovel then
+            shovels = pdata.items.Shovel.amount or 0
+        end
+
+        -- Get dug tiles
+        local dugTiles = {}
+        local currentTier = 0
+        if pdata.treasureHunt then
+            currentTier = pdata.treasureHunt.currentTier or 0
+            if pdata.treasureHunt.dug then
+                for _, tile in pairs(pdata.treasureHunt.dug) do
+                    if tile.index then
+                        dugTiles[tile.index] = true
+                    end
+                end
+            end
+        end
+
+        local dugCount = 0
+        for _ in pairs(dugTiles) do dugCount = dugCount + 1 end
+
+        if shovels > 0 then
+            -- Build undug list
+            local undug = {}
+            for i = 1, 49 do
+                if not dugTiles[i] then
+                    table.insert(undug, i)
+                end
+            end
+
+            if #undug == 0 then
+                statusBtn.Text = "Tier " .. currentTier .. " complete!"
+                statusBtn.BackgroundColor3 = Color3.fromRGB(200, 160, 0)
+                task.wait(5)
+                continue
+            end
+
+            log("Shovels: " .. shovels .. " | Undug: " .. #undug)
+            statusBtn.Text = "DIGGING... " .. shovels .. " shovels"
+            statusBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 0)
+
+            -- Dig all available
+            for _, tileIdx in ipairs(undug) do
+                if not sg.Parent then return end
+
+                -- Re-check shovels from live data
+                local freshData = getData()
+                local freshShovels = 0
+                if freshData and freshData.items and freshData.items.Shovel then
+                    freshShovels = freshData.items.Shovel.amount or 0
+                end
+
+                if freshShovels <= 0 then
+                    log("  Out of shovels, waiting...")
+                    break
+                end
+
+                local ok, result = pcall(function()
+                    return digRemote:InvokeServer(tileIdx)
+                end)
+
+                if ok and typeof(result) == "table" then
+                    if result.reason then
+                        log("  Tile " .. tileIdx .. ": SKIP (" .. tostring(result.reason) .. ")")
+                    elseif result.revealed then
+                        totalDugSession = totalDugSession + 1
+
+                        local rewardStr = ""
+                        if result.revealed then
+                            for _, rev in pairs(result.revealed) do
+                                if rev.reward then
+                                    rewardStr = tostring(rev.reward.id or "") .. " x" .. tostring(rev.reward.amount or "")
+                                end
+                            end
+                        end
+
+                        local sLeft = result.shovels or "?"
+                        local tierStr = result.tierComplete and " [TIER DONE!]" or ""
+
+                        log("  Tile " .. tileIdx .. ": " .. rewardStr .. " (left: " .. tostring(sLeft) .. ")" .. tierStr)
+                        statusBtn.Text = "Dug " .. totalDugSession .. " | " .. rewardStr
+                    else
+                        log("  Tile " .. tileIdx .. ": " .. safeStr(result))
+                    end
+                elseif not ok then
+                    log("  Tile " .. tileIdx .. " ERR: " .. tostring(result):sub(1, 50))
+                end
+
+                task.wait(0.3)
+            end
+
+            log("  Batch done. Waiting for more shovels...\n")
+        end
+
+        -- Idle - check every 3 seconds for new shovels
+        statusBtn.Text = "Waiting... (dug " .. totalDugSession .. " total)"
+        statusBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        task.wait(3)
+    end
 end)
