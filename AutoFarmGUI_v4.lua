@@ -301,6 +301,22 @@ local function clickExact(exactText)
     return false
 end
 
+-- press the green in-raid Start button (Leave / Start / Kick bar) so waves begin
+local function pressInRaidStart()
+    print("[SL] Pressing in-raid Start...")
+    for attempt = 1, 12 do
+        if #getAliveEnemies() > 0 then
+            print("[SL] Waves started (enemies present)")
+            return true
+        end
+        clickExact("Start")
+        clickByText("start")
+        if R.lobbyStart then pcall(function() R.lobbyStart:FireServer() end) end
+        task.wait(1)
+    end
+    return #getAliveEnemies() > 0
+end
+
 -- ============================================================
 --  WEBHOOK  (on raid completion, with drops + run #)
 -- ============================================================
@@ -396,29 +412,24 @@ local function farmLoop()
         if State.autoEquipWeapon then equipWeapon() end
 
         local enemies = getAliveEnemies()
-        local _, myHRP = getChar()
-        local inRange = {}
-        if myHRP then
-            for _, e in ipairs(enemies) do
-                if (myHRP.Position - e.hrp.Position).Magnitude <= HIT_RANGE then
-                    table.insert(inRange, e)
-                end
+        if #enemies > 0 then
+            -- teleport to the CLOSEST enemy at ANY distance (v5 behaviour).
+            local _, myHRP = getChar()
+            if myHRP then
+                table.sort(enemies, function(a, b)
+                    return (myHRP.Position - a.hrp.Position).Magnitude
+                         < (myHRP.Position - b.hrp.Position).Magnitude
+                end)
             end
-        end
-
-        if #inRange > 0 then
-            table.sort(inRange, function(a, b)
-                return (myHRP.Position - a.hrp.Position).Magnitude
-                     < (myHRP.Position - b.hrp.Position).Magnitude
-            end)
-            attackTarget(inRange[1])
+            attackTarget(enemies[1])
         else
-            -- boss area sweep / between waves: swing in place
+            -- no enemies: sweep the boss area and keep swinging (chases boss too)
             local bossPos = RAID.bossPos
+            local _, myHRP = getChar()
             if bossPos and myHRP then
                 if (myHRP.Position - bossPos.Position).Magnitude > 15 then
-                    local _, hrp = getChar()
-                    if hrp then hrp.CFrame = bossPos; task.wait(0.1) end
+                    myHRP.CFrame = bossPos
+                    task.wait(0.1)
                 end
             end
             swingWeapon(); task.wait(0.1); swingWeapon()
@@ -450,6 +461,8 @@ local function raidCycleLoop()
 
         if not isInRaidArea() and not State.inRaid and not State.startingRaid then
             if startRaidInstant() then
+                -- press the green Start button so the raid actually begins
+                pressInRaidStart()
                 if State.autoEquipWeapon then equipWeapon() end
                 State.inRaid = true
                 State.freezeUntil = tick() + 3
