@@ -27,6 +27,7 @@ local defaults = {
     showFov     = true,
     fovRadius   = 120,       -- circle radius in pixels
     teamCheck   = false,     -- if true, ignore same-team players
+    wallCheck   = false,     -- if true, only lock when target is in line of sight
     smoothness  = 0.35,      -- 0 = instant snap, 1 = very slow
     aimPart     = "Head",    -- Head or HumanoidRootPart
     guiVisible  = true,
@@ -59,6 +60,26 @@ local function isEnemy(plr)
     return true
 end
 
+-- line-of-sight check: raycast from the camera to the target part; if the
+-- first thing we hit belongs to the target, they're exposed (visible). If a
+-- wall/other object blocks the ray, they're hidden.
+local function isVisible(plr, part)
+    if not part then return false end
+    local origin = Camera.CFrame.Position
+    local dir = part.Position - origin
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    -- ignore our own character and the camera so they don't block the ray
+    local ignore = {}
+    if LP.Character then table.insert(ignore, LP.Character) end
+    params.FilterDescendantsInstances = ignore
+    local result = Workspace:Raycast(origin, dir, params)
+    if not result then return true end   -- nothing hit = clear line of sight
+    -- if what we hit is part of the target's character, they're exposed
+    local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
+    return hitModel ~= nil and hitModel == plr.Character
+end
+
 -- distance from screen center-ish (the crosshair = viewport center)
 local function screenCenter()
     local vp = Camera.ViewportSize
@@ -76,7 +97,8 @@ local function getTarget()
                 local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
                 if onScreen then
                     local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
-                    if d < bestDist then
+                    -- if wall-check is on, skip targets not in line of sight
+                    if d < bestDist and (not S.wallCheck or isVisible(plr, part)) then
                         best, bestDist = plr, d
                     end
                 end
@@ -238,7 +260,7 @@ floatBtn.Font = Enum.Font.GothamBold; floatBtn.BorderSizePixel = 0; floatBtn.ZIn
 Instance.new("UICorner", floatBtn).CornerRadius = UDim.new(0,12)
 
 local mainFrame = Instance.new("Frame", sg)
-mainFrame.Size = UDim2.new(0,250,0,290); mainFrame.Position = UDim2.new(0.5,-125,0.5,-145)
+mainFrame.Size = UDim2.new(0,250,0,330); mainFrame.Position = UDim2.new(0.5,-125,0.5,-165)
 mainFrame.BackgroundColor3 = C.bg; mainFrame.BorderSizePixel = 0; mainFrame.ZIndex = 50
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,14)
 local mStroke = Instance.new("UIStroke", mainFrame); mStroke.Color = C.red; mStroke.Thickness = 1; mStroke.Transparency = 0.4
@@ -381,6 +403,7 @@ end
 tog("Aimbot", "aimbot", C.red)
 tog("ESP boxes", "esp", C.green)
 tog("Show FOV circle", "showFov", C.blue)
+tog("Visible only (no walls)", "wallCheck", C.blue)
 tog("Team check", "teamCheck", C.textMid)
 slider("FOV circle size", "fovRadius", 40, 400)
 
