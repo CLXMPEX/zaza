@@ -28,8 +28,8 @@ local defaults = {
     fovRadius   = 120,       -- circle radius in pixels
     teamCheck   = false,     -- if true, ignore same-team players
     wallCheck   = false,     -- if true, only lock when target is in line of sight
-    prediction  = 0.15,      -- how far ahead to aim based on target velocity
-    smoothness  = 0.35,      -- 0 = instant snap, 1 = very slow
+    prediction  = 15,        -- lead amount (slider 0-50); higher = more lead
+    smoothness  = 5,         -- 1 = instant snap, higher = smoother/slower
     aimPart     = "Head",    -- Head or HumanoidRootPart
     guiVisible  = true,
 }
@@ -224,31 +224,45 @@ end
 -- ============================================================
 --  AIMBOT  (lock camera to target's aim part)
 -- ============================================================
+-- is a locked target still worth keeping? (alive, in FOV, and visible if wall-check on)
+local function targetStillValid(plr)
+    if not plr or not isEnemy(plr) or not alive(plr) then return false end
+    local part = getPart(plr, S.aimPart)
+    if not part then return false end
+    if S.wallCheck and not isVisible(plr) then return false end
+    local sp, onScreen = Camera:WorldToViewportPoint(part.Position)
+    if not onScreen then return false end
+    local d = (Vector2.new(sp.X, sp.Y) - screenCenter()).Magnitude
+    return d < S.fovRadius
+end
+
 local locked = nil
 local function doAimbot()
     if not S.aimbot then locked = nil; return end
-    -- (re)acquire the closest target inside the circle each frame
-    locked = getTarget()
+
+    -- STICKY: keep the current target while it's still valid. Only pick a new
+    -- one when we have none / it left the circle / died. This stops the
+    -- flicking between players that happens if we re-pick every frame.
+    if not targetStillValid(locked) then
+        locked = getTarget()
+    end
     if not locked then return end
     local part = getPart(locked, S.aimPart)
     if not part then return end
 
-    -- aim ahead of moving targets: add a fraction of their velocity so the
-    -- shot lands where they're going, not where they were. This is what makes
-    -- running/strafing players hittable.
-    local aimPos = part.Position
+    -- PREDICTION: lead the target by their velocity. We lead mostly on the
+    -- horizontal plane (running), and dampen vertical so a jump/fall doesn't
+    -- yank the aim up or down. prediction slider 0-50 -> factor 0..0.5.
     local vel = part.AssemblyLinearVelocity
-    if vel and S.prediction > 0 then
-        aimPos = aimPos + vel * S.prediction
-    end
+    local factor = (S.prediction or 0) / 100
+    local lead = Vector3.new(vel.X * factor, vel.Y * factor * 0.35, vel.Z * factor)
+    local aimPos = part.Position + lead
 
-    local targetCF = CFrame.new(Camera.CFrame.Position, aimPos)
-    if S.smoothness <= 0 then
-        Camera.CFrame = targetCF
-    else
-        -- smooth interpolate toward the target
-        Camera.CFrame = Camera.CFrame:Lerp(targetCF, 1 - S.smoothness)
-    end
+    -- SMOOTHNESS: alpha = 1/smoothness. 1 = instant snap, higher = smoother.
+    local alpha = 1 / math.max(S.smoothness or 1, 1)
+    local cam = Camera.CFrame
+    local goal = CFrame.new(cam.Position, aimPos)
+    Camera.CFrame = cam:Lerp(goal, alpha)
 end
 
 -- ============================================================
@@ -291,7 +305,7 @@ floatBtn.Font = Enum.Font.GothamBold; floatBtn.BorderSizePixel = 0; floatBtn.ZIn
 Instance.new("UICorner", floatBtn).CornerRadius = UDim.new(0,12)
 
 local mainFrame = Instance.new("Frame", sg)
-mainFrame.Size = UDim2.new(0,250,0,330); mainFrame.Position = UDim2.new(0.5,-125,0.5,-165)
+mainFrame.Size = UDim2.new(0,250,0,400); mainFrame.Position = UDim2.new(0.5,-125,0.5,-200)
 mainFrame.BackgroundColor3 = C.bg; mainFrame.BorderSizePixel = 0; mainFrame.ZIndex = 50
 Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0,14)
 local mStroke = Instance.new("UIStroke", mainFrame); mStroke.Color = C.red; mStroke.Thickness = 1; mStroke.Transparency = 0.4
@@ -338,9 +352,11 @@ UIS.InputEnded:Connect(function(i)
     end
 end)
 
-local body = Instance.new("Frame", mainFrame)
-body.Size = UDim2.new(1,-16,1,-46); body.Position = UDim2.new(0,8,0,42)
-body.BackgroundTransparency = 1; body.ZIndex = 51
+local body = Instance.new("ScrollingFrame", mainFrame)
+body.Size = UDim2.new(1,-12,1,-46); body.Position = UDim2.new(0,8,0,42)
+body.BackgroundTransparency = 1; body.BorderSizePixel = 0; body.ZIndex = 51
+body.ScrollBarThickness = 3; body.ScrollBarImageColor3 = C.red
+body.CanvasSize = UDim2.new(0,0,0,0); body.AutomaticCanvasSize = Enum.AutomaticSize.Y
 local lay = Instance.new("UIListLayout", body); lay.Padding = UDim.new(0,6)
 
 local function tog(label, key, color)
@@ -375,8 +391,9 @@ local function tog(label, key, color)
     upd()
 end
 
--- FOV slider
-local function slider(label, key, minV, maxV)
+-- FOV slider (also handles prediction/smoothness via a scale divisor)
+local function slider(label, key, minV, maxV, scale)
+    scale = scale or 1
     local h = Instance.new("Frame", body)
     h.Size = UDim2.new(1,0,0,48); h.BackgroundColor3 = C.card; h.BorderSizePixel = 0; h.ZIndex = 51
     Instance.new("UICorner", h).CornerRadius = UDim.new(0,8)
@@ -398,11 +415,11 @@ local function slider(label, key, minV, maxV)
     knob.BackgroundColor3 = Color3.new(1,1,1); knob.BorderSizePixel = 0; knob.ZIndex = 54
     Instance.new("UICorner", knob).CornerRadius = UDim.new(1,0)
     local function redraw()
-        local pct = (S[key]-minV)/(maxV-minV)
+        local pct = (S[key]*scale - minV)/(maxV - minV)
         pct = math.clamp(pct, 0, 1)
         fill.Size = UDim2.new(pct,0,1,0)
         knob.Position = UDim2.new(pct,0,0.5,0)
-        l.Text = label .. ": " .. math.floor(S[key])
+        l.Text = label .. ": " .. math.floor(S[key]*scale)
     end
     local hit = Instance.new("TextButton", track)
     hit.Size = UDim2.new(1,0,3,0); hit.Position = UDim2.new(0,0,-1,0)
@@ -410,7 +427,7 @@ local function slider(label, key, minV, maxV)
     local dragging = false
     local function setFromX(px)
         local rel = math.clamp((px - track.AbsolutePosition.X)/track.AbsoluteSize.X, 0, 1)
-        S[key] = minV + rel*(maxV-minV)
+        S[key] = (minV + rel*(maxV-minV)) / scale
         redraw()
     end
     hit.InputBegan:Connect(function(i)
@@ -438,7 +455,7 @@ tog("Visible only (no walls)", "wallCheck", C.blue)
 tog("Team check", "teamCheck", C.textMid)
 slider("FOV circle size", "fovRadius", 40, 400)
 slider("Prediction (lead shots)", "prediction", 0, 50)
-slider("Smoothness (0=snap)", "smoothness", 0, 90)
+slider("Smoothness (1=snap)", "smoothness", 1, 25)
 
 print("=========================================")
 print("  Aimbot + ESP loaded")
