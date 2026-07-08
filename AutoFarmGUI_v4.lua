@@ -28,6 +28,7 @@ local defaults = {
     fovRadius   = 120,       -- circle radius in pixels
     teamCheck   = false,     -- if true, ignore same-team players
     wallCheck   = false,     -- if true, only lock when target is in line of sight
+    prediction  = 0.15,      -- how far ahead to aim based on target velocity
     smoothness  = 0.35,      -- 0 = instant snap, 1 = very slow
     aimPart     = "Head",    -- Head or HumanoidRootPart
     guiVisible  = true,
@@ -60,24 +61,40 @@ local function isEnemy(plr)
     return true
 end
 
--- line-of-sight check: raycast from the camera to the target part; if the
--- first thing we hit belongs to the target, they're exposed (visible). If a
--- wall/other object blocks the ray, they're hidden.
-local function isVisible(plr, part)
-    if not part then return false end
+-- line-of-sight check: raycast from the camera to SEVERAL body parts. If ANY
+-- one of them is reachable (not blocked), the player counts as visible. So if
+-- even an arm or leg pokes out from cover, they're "exposed" (green).
+local VIS_PARTS = {
+    "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "Torso",
+    "LeftHand", "RightHand", "LeftFoot", "RightFoot",
+    "LeftUpperArm", "RightUpperArm", "LeftLowerLeg", "RightLowerLeg",
+    "Left Arm", "Right Arm", "Left Leg", "Right Leg",
+}
+local function isVisible(plr, _ignored)
+    local char = plr.Character
+    if not char then return false end
     local origin = Camera.CFrame.Position
-    local dir = part.Position - origin
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    -- ignore our own character and the camera so they don't block the ray
     local ignore = {}
     if LP.Character then table.insert(ignore, LP.Character) end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = ignore
-    local result = Workspace:Raycast(origin, dir, params)
-    if not result then return true end   -- nothing hit = clear line of sight
-    -- if what we hit is part of the target's character, they're exposed
-    local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
-    return hitModel ~= nil and hitModel == plr.Character
+
+    for _, pn in ipairs(VIS_PARTS) do
+        local part = char:FindFirstChild(pn)
+        if part and part:IsA("BasePart") then
+            local dir = part.Position - origin
+            local result = Workspace:Raycast(origin, dir, params)
+            if not result then
+                return true   -- nothing blocking this part
+            end
+            local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
+            if hitModel == char then
+                return true   -- the ray reached the target's own body
+            end
+        end
+    end
+    return false   -- every body part is blocked
 end
 
 -- distance from screen center-ish (the crosshair = viewport center)
@@ -216,7 +233,16 @@ local function doAimbot()
     local part = getPart(locked, S.aimPart)
     if not part then return end
 
-    local targetCF = CFrame.new(Camera.CFrame.Position, part.Position)
+    -- aim ahead of moving targets: add a fraction of their velocity so the
+    -- shot lands where they're going, not where they were. This is what makes
+    -- running/strafing players hittable.
+    local aimPos = part.Position
+    local vel = part.AssemblyLinearVelocity
+    if vel and S.prediction > 0 then
+        aimPos = aimPos + vel * S.prediction
+    end
+
+    local targetCF = CFrame.new(Camera.CFrame.Position, aimPos)
     if S.smoothness <= 0 then
         Camera.CFrame = targetCF
     else
@@ -411,6 +437,8 @@ tog("Show FOV circle", "showFov", C.blue)
 tog("Visible only (no walls)", "wallCheck", C.blue)
 tog("Team check", "teamCheck", C.textMid)
 slider("FOV circle size", "fovRadius", 40, 400)
+slider("Prediction (lead shots)", "prediction", 0, 50)
+slider("Smoothness (0=snap)", "smoothness", 0, 90)
 
 print("=========================================")
 print("  Aimbot + ESP loaded")
