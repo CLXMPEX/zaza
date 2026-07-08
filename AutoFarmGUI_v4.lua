@@ -189,6 +189,11 @@ local function updateESP()
                     e.box.Visible = true
                     e.name.Text = plr.Name
                     e.name.Visible = true
+                    -- green when exposed (line of sight clear), red when blocked
+                    local visible = isVisible(plr, head or hrp)
+                    local col = visible and Color3.fromRGB(60, 230, 90) or Color3.fromRGB(255, 60, 90)
+                    e.stroke.Color = col
+                    e.name.TextColor3 = col
                 end
             end
         end
